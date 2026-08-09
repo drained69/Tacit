@@ -477,6 +477,22 @@ in one round, one of them a known-good control copied from Flare's own `FdcTraff
 | Bitstamp, `""` params | VALID | not attested |
 | Bitstamp, `"{}"` params | VALID | not attested |
 
+A second sweep (`offchain/probe_sources.py`) then mapped which market-data hosts the providers will
+actually fetch — five candidates submitted in a single round:
+
+| Host | Verifier | Providers |
+|---|---|---|
+| `api.gemini.com` | VALID | **attested** |
+| `api.coinbase.com` | VALID | **attested** |
+| `api.coinpaprika.com` | VALID | **attested** |
+| `api.exchange.coinbase.com` | VALID | not attested |
+| `www.bitstamp.net` | VALID | not attested |
+
+Note that `api.coinbase.com` attests while `api.exchange.coinbase.com` does not — the distinction is
+per-host, not per-organisation, and there is no way to predict it. Gemini is the best fit for the
+signal: it returns `open`/`high`/`low`/`close` as **strings**, which is exactly what the verifier's
+`floor`-less jq subset needs.
+
 So the pipeline works and our request shape is fine — the providers simply will not fetch that
 host. `offchain/probe_sources.py` exists to answer the same question for any candidate source,
 because there is no endpoint that will tell you.
