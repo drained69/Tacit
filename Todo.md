@@ -22,10 +22,28 @@ Status **2026-08-09**. Deadline **2026-08-14 19:59 UTC** — five days.
 
 ## Critical path
 
-### 1. First real end-to-end rebalance — THE remaining milestone
+### 1. Finish the end-to-end rebalance — ONE step remains
 
-Still the only thing never run against live infrastructure. Every piece is verified in isolation;
-the full loop has not executed once.
+Substantially de-risked this session. What is now **proven against live Coston2**:
+
+- the attestation request is accepted and paid for (fee bug fixed — it lives on
+  `FdcRequestFeeConfigurations`, not `FdcHub`)
+- **our proof handling is correct**: `verify_real_proof.py` rebuilds the `IWeb2Json.Proof` tuple
+  from a real finalised attestation and `FdcVerification.verifyWeb2Json()` returns **true**. The
+  tuple encoding, Merkle handling and payload decoding were the biggest unknown and are now closed.
+
+What remains is exactly one thing: **the data providers will not fetch Bitstamp.** Confirmed by
+controlled experiment — a jsonplaceholder control submitted in the same round attests, Bitstamp
+does not, in either parameter shape.
+
+```bash
+# Which market-data hosts will the providers actually attest?
+./.venv/bin/python offchain/probe_sources.py          # submit candidates
+./.venv/bin/python offchain/probe_sources.py --check  # verdict once rounds finalise
+```
+
+Then point `offchain/signal_source.py` at whichever host wins and run the relayer. Everything
+downstream of the proof is already verified.
 
 ```bash
 (cd tee && TACIT_TEE_KEY=$TACIT_TEE_KEY SIMULATED_TEE=true go run .) &
@@ -92,7 +110,9 @@ the adapter reaches real protocols; do not overstate the others.
 **Async venue capital is not instantly redeemable.** Bounded by the 30% cap; never counted in
 `maxRedeem`.
 
-**Git is still not initialised. No commits yet.**
+**Data providers will not fetch every host the verifier can.** A `VALID` request can be paid for
+and silently never attested. This is now detected and reported loudly rather than polled to
+timeout, and `probe_sources.py` exists to answer it for any candidate.
 
 ---
 
@@ -103,7 +123,7 @@ the adapter reaches real protocols; do not overstate the others.
 | Contracts | 51 Solidity tests passing |
 | Enclave (Go) | 8 tests, vet + gofmt clean |
 | Web2Json pipeline | Request verified `VALID` against the live verifier |
-| Relayer | Written, **never run end-to-end** |
+| Relayer | Submission + proof handling verified live; blocked only on an attestable source |
 | UI | Live against Coston2 |
 | Deployment | **Live**, seeded, unverified in the explorer |
-| Git | **Not initialised** |
+| Git | Initialised, 2 commits |
