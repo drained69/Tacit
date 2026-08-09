@@ -115,6 +115,11 @@ def fetch_proof(
         {"votingRoundId": attestation.voting_round, "requestBytes": attestation.request_bytes}
     ).encode()
 
+    # `attestation request not found` is genuinely ambiguous: the round may not have finalised
+    # yet, OR the request was submitted and paid for but never attested by the data providers.
+    # Nothing distinguishes them from this endpoint alone, so the round's own contents are checked
+    # separately once it finalises — otherwise a request that will *never* arrive is polled to
+    # timeout and reported as slowness rather than failure.
     last_error = ""
     for attempt in range(1, attempts + 1):
         req = urllib.request.Request(
@@ -138,7 +143,38 @@ def fetch_proof(
         print(f"  [{attempt}/{attempts}] waiting for round {attestation.voting_round} ({last_error})")
         time.sleep(delay_seconds)
 
+    finalised, contents = round_status(attestation.voting_round, da_layer_url, api_key)
+    if finalised:
+        raise RuntimeError(
+            f"round {attestation.voting_round} finalised with {contents} attestation(s) but ours "
+            f"was not among them. The request was accepted and paid for on-chain, so this is not a "
+            f"submission failure: the data providers did not attest it. Most likely the source URL "
+            f"is unreachable from the providers even though the verifier could reach it. "
+            f"Run offchain/probe_attestation.py to isolate the cause."
+        )
     raise TimeoutError(
         f"proof for round {attestation.voting_round} not available after "
-        f"{attempts * delay_seconds}s; last: {last_error}"
+        f"{attempts * delay_seconds}s and the round has not finalised; last: {last_error}"
     )
+
+
+def round_status(voting_round: int, da_layer_url: str = COSTON2_DA_LAYER,
+                 api_key: str = "00000000-0000-0000-0000-000000000000") -> tuple[bool, int]:
+    """Returns (finalised, attestation_count) for a voting round."""
+    try:
+        req = urllib.request.Request(
+            f"{da_layer_url}/api/v0/fsp/status", headers={"X-API-KEY": api_key}
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            latest = json.loads(r.read().decode())["latest_fdc"]["voting_round_id"]
+        if latest < voting_round:
+            return False, 0
+
+        req = urllib.request.Request(
+            f"{da_layer_url}/api/v1/fdc?voting_round_id={voting_round}",
+            headers={"X-API-KEY": api_key},
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return True, len(json.loads(r.read().decode()))
+    except Exception:
+        return False, 0

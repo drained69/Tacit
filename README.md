@@ -458,6 +458,47 @@ Fund the deployer from the [Coston2 faucet](https://faucet.flare.network/coston2
 
 Recorded because each cost real time and each would bite anyone building the same thing.
 
+### The FDC verifier and the FDC data providers are different machines
+
+This one cost the most and is the least documented anywhere.
+
+`prepareRequest` returning `VALID` proves only that **the verifier** could reach a URL and run the
+jq filter. The ~100 data providers that actually attest are different machines with different
+network egress. A request can be `VALID`, submitted, paid for on-chain — and then **silently never
+attested**. No error is raised anywhere; the DA layer just answers `attestation request not found`
+forever, which is indistinguishable from "the round has not finalised yet".
+
+Isolated with a controlled experiment (`offchain/probe_attestation.py`): three variants submitted
+in one round, one of them a known-good control copied from Flare's own `FdcTrafficMaker`.
+
+| Submission | Verifier | Providers |
+|---|---|---|
+| `jsonplaceholder.typicode.com` (control) | VALID | **attested** |
+| Bitstamp, `""` params | VALID | not attested |
+| Bitstamp, `"{}"` params | VALID | not attested |
+
+So the pipeline works and our request shape is fine — the providers simply will not fetch that
+host. `offchain/probe_sources.py` exists to answer the same question for any candidate source,
+because there is no endpoint that will tell you.
+
+Two consequences are baked into the code:
+
+- `fdc.py` now distinguishes *not finalised* from *not attested* by checking
+  `/api/v0/fsp/status` and the round's contents, and **fails loudly** instead of polling to
+  timeout and reporting a permanent failure as slowness.
+- `offchain/verify_real_proof.py` validates our proof handling **without** depending on our own
+  source being attested: it pulls any finalised Web2Json attestation from the DA layer, rebuilds
+  the `IWeb2Json.Proof` tuple exactly as `executeRebalance` expects it, and asks the real
+  `FdcVerification` contract. It returns **`True`** against live Coston2 data — so the tuple
+  encoding, Merkle handling and payload decoding are all confirmed correct against production.
+
+### The FDC request fee is on a different contract than you would guess
+
+`FdcHub.getRequestFee(bytes)` **reverts**. The fee lives on `FdcRequestFeeConfigurations`.
+Underpaying fails with `"fee to low, call getRequestFee to get the required fee amount"` — naming a
+method the hub does not expose, which sends you to the wrong contract. It is 1000 wei on Coston2;
+read it rather than hardcoding.
+
 ### `abi.encodePacked` pads array elements
 
 `abi.encodePacked` does **not** pad standalone value types but **does** pad array elements to 32
