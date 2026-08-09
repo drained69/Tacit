@@ -1,0 +1,20 @@
+# Foundry
+out/
+cache/
+broadcast/*/dry-run/
+
+# Node
+node_modules/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Go
+tee/sentinel-tee
+
+# Secrets — the TEE identity key and deployer key must never be committed.
+.env
+.env.local
+*.key

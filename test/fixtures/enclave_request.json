@@ -1,0 +1,21 @@
+{
+  "opType": "TACIT",
+  "command": "REBALANCE",
+  "chainId": 114,
+  "vault": "0x5991A2dF15A8F6A256D3Ec51E99254Cd3fb576A9",
+  "nonce": 0,
+  "deadline": 1786400000,
+  "signal": {
+    "LastMicroUSD": 1038910,
+    "VWAPMicroUSD": 1040130,
+    "HighMicroUSD": 1048060,
+    "LowMicroUSD": 1030290,
+    "VolumeXRP": 8957657,
+    "ChangeBps": -22,
+    "ObsTimestamp": 1786281701
+  },
+  "venues": [
+    { "name": "conservative", "ratePerYearBp": 800,  "capBps": 6000, "liquidityBps": 10000 },
+    { "name": "aggressive",   "ratePerYearBp": 1500, "capBps": 6000, "liquidityBps": 10000 }
+  ]
+}

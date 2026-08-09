@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tacit · Confidential FXRP Treasury</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark">◆</span>
+    <div>
+      <h1>Tacit</h1>
+      <p class="tagline">Understood without being stated.</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="network-pill" class="pill pill-muted">not connected</span>
+    <button id="connect" class="btn btn-primary">Connect wallet</button>
+  </div>
+</header>
+
+<main>
+  <!-- Leads with what is verifiable, then states the one simulated component precisely.
+       Both halves matter: overclaiming would be dishonest, but burying the real integrations
+       behind a disclaimer misrepresents the system in the other direction. -->
+  <div id="sim-banner" class="banner">
+    <span class="banner-live">● Live on Coston2 ·</span>
+    Real FXRP, real FTSO price feeds, real FDC attestation across ~100 independent data providers.
+    <strong>Hardware attestation quotes are simulated on Flare's testnet</strong> — which is exactly
+    why this vault enforces five guardrails on-chain instead of trusting the enclave.
+  </div>
+
+  <section class="grid-top">
+    <!-- ── Vault ───────────────────────────────────────────────── -->
+    <div class="card">
+      <h2>Vault</h2>
+      <div class="stats">
+        <div class="stat">
+          <span class="label">Total value locked</span>
+          <span class="value" id="tvl">—</span>
+        </div>
+        <div class="stat">
+          <span class="label">Your position</span>
+          <span class="value" id="your-assets">—</span>
+        </div>
+        <div class="stat">
+          <span class="label">Share price</span>
+          <span class="value" id="share-price">—</span>
+        </div>
+        <div class="stat">
+          <span class="label">Your shares</span>
+          <span class="value mono" id="your-shares">—</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <div class="field">
+          <label for="amount">Amount (FXRP)</label>
+          <div class="input-row">
+            <input id="amount" type="text" inputmode="decimal" placeholder="0.000000" />
+            <button id="max" class="btn btn-ghost btn-sm">max</button>
+          </div>
+        </div>
+        <div class="button-row">
+          <button id="deposit" class="btn btn-primary" disabled>Deposit</button>
+          <button id="withdraw" class="btn btn-secondary" disabled>Withdraw</button>
+        </div>
+        <p id="tx-status" class="status"></p>
+      </div>
+    </div>
+
+    <!-- ── Guardrails ──────────────────────────────────────────── -->
+    <div class="card">
+      <h2>Guardrails <span class="subtle">enforced on-chain</span></h2>
+      <p class="card-intro">
+        Every rebalance is signed by the enclave and still has to pass all five.
+      </p>
+      <ul class="guardrails" id="guardrails">
+        <li data-key="conservation">
+          <span class="tick">✓</span>
+          <span class="g-name">Conservation</span>
+          <span class="g-value" id="g-conservation">—</span>
+          <span class="g-note">total assets may not fall</span>
+        </li>
+        <li data-key="cap">
+          <span class="tick">✓</span>
+          <span class="g-name">Venue cap</span>
+          <span class="g-value" id="g-cap">—</span>
+          <span class="g-note">max share in any one venue</span>
+        </li>
+        <li data-key="turnover">
+          <span class="tick">✓</span>
+          <span class="g-name">Turnover</span>
+          <span class="g-value" id="g-turnover">—</span>
+          <span class="g-note">max rotation per rebalance</span>
+        </li>
+        <li data-key="band">
+          <span class="tick">✓</span>
+          <span class="g-name">FTSO band</span>
+          <span class="g-value" id="g-band">—</span>
+          <span class="g-note">reference price vs XRP/USD feed</span>
+        </li>
+        <li data-key="age">
+          <span class="tick">✓</span>
+          <span class="g-name">Signal age</span>
+          <span class="g-value" id="g-age">—</span>
+          <span class="g-note">attested observation must be fresh</span>
+        </li>
+      </ul>
+      <div class="enclave-row">
+        <span class="label">Enclave identity</span>
+        <span class="mono small" id="tee-identity">—</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Allocation ────────────────────────────────────────────── -->
+  <section class="card">
+    <h2>Allocation <span class="subtle">decided in the enclave, bounded on-chain</span></h2>
+    <div id="allocation" class="allocation">
+      <p class="empty">Connect to load allocation.</p>
+    </div>
+    <div class="rebalance-row">
+      <div>
+        <span class="label">Last rebalance</span>
+        <span class="value-sm" id="last-rebalance">—</span>
+      </div>
+      <div>
+        <span class="label">Nonce</span>
+        <span class="value-sm mono" id="nonce">—</span>
+      </div>
+      <button id="request-rebalance" class="btn btn-ghost btn-sm" disabled>Request rebalance</button>
+    </div>
+  </section>
+
+  <!-- ── Attested signal ───────────────────────────────────────── -->
+  <section class="card">
+    <h2>Last attested signal <span class="subtle">Flare Data Connector · Web2Json</span></h2>
+    <p class="card-intro">
+      The strategy stays inside the enclave. Its <em>inputs</em> are public and verified by ~100
+      independent data providers, so any allocation can be audited after the fact.
+    </p>
+    <div class="signal-grid" id="signal-grid">
+      <div class="sig"><span class="label">Price</span><span class="value" id="sig-price">—</span></div>
+      <div class="sig"><span class="label">VWAP</span><span class="value" id="sig-vwap">—</span></div>
+      <div class="sig"><span class="label">24h range</span><span class="value" id="sig-range">—</span></div>
+      <div class="sig"><span class="label">Volume</span><span class="value" id="sig-volume">—</span></div>
+      <div class="sig"><span class="label">24h change</span><span class="value" id="sig-change">—</span></div>
+      <div class="sig"><span class="label">Observed</span><span class="value" id="sig-time">—</span></div>
+    </div>
+    <div class="band-check" id="band-check">
+      <span class="label">FTSO XRP/USD at last rebalance</span>
+      <span class="value-sm" id="ftso-price">—</span>
+      <span id="band-verdict" class="pill pill-muted">—</span>
+    </div>
+  </section>
+
+  <footer>
+    <p>
+      A malicious enclave can still pick a poor-but-legal allocation, or refuse to act. It cannot
+      move funds out, concentrate, churn, or act on a price the market never printed.
+      <strong>The enclave controls strategy quality, never fund safety.</strong>
+    </p>
+    <p class="small subtle" id="vault-address-line">—</p>
+  </footer>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,369 @@
+/* Tacit — dark, quiet, typographic. The palette borrows Flare's crimson as the single accent so
+   the page reads as ecosystem-native without shouting. */
+
+:root {
+  --bg:        #0a0a0c;
+  --panel:     #131318;
+  --panel-2:   #1a1a21;
+  --line:      #26262f;
+  --text:      #e8e8ec;
+  --muted:     #8a8a99;
+  --dim:       #5c5c6b;
+  --accent:    #e62058;
+  --accent-dim:#7d1130;
+  --good:      #35c47a;
+  --warn:      #e0a020;
+  --idle:      #4a4a58;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── top bar ───────────────────────────────────────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #101015, var(--bg));
+  flex-wrap: wrap;
+}
+
+.brand { display: flex; align-items: center; gap: 14px; }
+
+.mark {
+  font-size: 26px;
+  color: var(--accent);
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.tagline {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--dim);
+  font-style: italic;
+}
+
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+
+/* ── layout ────────────────────────────────────────────────── */
+
+main {
+  max-width: 1060px;
+  margin: 0 auto;
+  padding: 24px 20px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.grid-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 860px) {
+  .grid-top { grid-template-columns: 1fr; }
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 22px;
+}
+
+.card h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.subtle { color: var(--dim); font-weight: 400; font-size: 12.5px; margin-left: 6px; }
+
+.card-intro {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ── banner ────────────────────────────────────────────────── */
+
+.banner {
+  background: linear-gradient(90deg, rgba(230,32,88,0.10), rgba(230,32,88,0.03));
+  border: 1px solid var(--accent-dim);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #f0d6de;
+}
+
+.banner strong { color: #fff; }
+
+/* ── stats ─────────────────────────────────────────────────── */
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+  margin: 16px 0 20px;
+}
+
+.stat { display: flex; flex-direction: column; gap: 2px; }
+
+.label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--dim);
+}
+
+.value { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.value-sm { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); }
+.small { font-size: 12px; }
+
+/* ── forms ─────────────────────────────────────────────────── */
+
+.field { margin-bottom: 12px; }
+.field label { display: block; margin-bottom: 6px; }
+
+.input-row { display: flex; gap: 8px; }
+
+input[type="text"] {
+  flex: 1;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 15px;
+}
+
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+
+.button-row { display: flex; gap: 10px; }
+
+.btn {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:not(:disabled):hover { background: #f5376c; }
+
+.btn-secondary { background: var(--panel-2); color: var(--text); border-color: var(--line); }
+.btn-secondary:not(:disabled):hover { border-color: var(--dim); }
+
+.btn-ghost { background: transparent; color: var(--muted); border-color: var(--line); }
+.btn-ghost:not(:disabled):hover { color: var(--text); border-color: var(--dim); }
+
+.btn-sm { padding: 6px 12px; font-size: 12.5px; }
+
+.status { margin: 12px 0 0; font-size: 12.5px; min-height: 18px; color: var(--muted); }
+.status.error { color: #ff7a94; }
+.status.ok { color: var(--good); }
+
+/* ── pills ─────────────────────────────────────────────────── */
+
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid var(--line);
+}
+
+.pill-muted { color: var(--dim); }
+.pill-good  { color: var(--good);  border-color: rgba(53,196,122,0.35); background: rgba(53,196,122,0.08); }
+.pill-warn  { color: var(--warn);  border-color: rgba(224,160,32,0.35); background: rgba(224,160,32,0.08); }
+
+/* ── guardrails ────────────────────────────────────────────── */
+
+.guardrails { list-style: none; margin: 0; padding: 0; }
+
+.guardrails li {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  grid-template-areas: "tick name value" ".  note note";
+  gap: 2px 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+}
+
+.guardrails li:last-child { border-bottom: none; }
+
+.tick { grid-area: tick; color: var(--good); font-size: 13px; }
+.g-name { grid-area: name; font-size: 13.5px; }
+.g-value {
+  grid-area: value;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.g-note { grid-area: note; font-size: 11.5px; color: var(--dim); }
+
+.enclave-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.enclave-row .mono { color: var(--muted); word-break: break-all; }
+
+/* ── allocation ────────────────────────────────────────────── */
+
+.allocation { display: flex; flex-direction: column; gap: 14px; margin: 16px 0 4px; }
+
+.alloc-row { display: grid; grid-template-columns: 132px 1fr 132px; gap: 14px; align-items: center; }
+
+@media (max-width: 620px) {
+  .alloc-row { grid-template-columns: 1fr; gap: 4px; }
+}
+
+.alloc-name { font-size: 13.5px; }
+.alloc-name .apr { color: var(--dim); font-size: 11.5px; margin-left: 6px; }
+
+.bar {
+  position: relative;
+  height: 22px;
+  background: var(--panel-2);
+  border-radius: 5px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+
+.bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width 0.4s ease;
+}
+
+.bar-fill.is-idle { background: var(--idle); }
+
+/* The cap marker is the visual point of this chart: it shows how much room the enclave has,
+   and that the bar physically cannot pass it. */
+.cap-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: repeating-linear-gradient(180deg, var(--warn) 0 3px, transparent 3px 6px);
+}
+
+.alloc-figures {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.alloc-figures .pct { color: var(--text); }
+.alloc-figures .amt { color: var(--dim); display: block; font-size: 11.5px; }
+
+.empty { color: var(--dim); font-size: 13px; margin: 8px 0; }
+
+.rebalance-row {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.rebalance-row > div { display: flex; flex-direction: column; gap: 1px; }
+.rebalance-row button { margin-left: auto; }
+
+/* ── signal ────────────────────────────────────────────────── */
+
+.signal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.sig { display: flex; flex-direction: column; gap: 2px; }
+.sig .value { font-size: 15px; font-family: var(--mono); }
+.sig .value.up   { color: var(--good); }
+.sig .value.down { color: #ff7a94; }
+
+.band-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.band-check .label { flex-shrink: 0; }
+
+/* ── footer ────────────────────────────────────────────────── */
+
+footer {
+  margin-top: 8px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+footer p { margin: 0 0 8px; font-size: 12.5px; color: var(--muted); }
+footer p:last-child { margin-bottom: 0; }
+footer strong { color: var(--text); }
+
+/* Live indicator inside the banner. The banner leads with what is verifiable rather than with
+   the caveat, so this needs to read as status, not decoration. */
+.banner-live {
+  color: var(--good);
+  font-weight: 600;
+  margin-right: 6px;
+  white-space: nowrap;
+}
