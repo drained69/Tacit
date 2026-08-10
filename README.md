@@ -12,7 +12,8 @@ Built for **Flare Summer Signal**, targeting both bounties — *Interoperable As
 *Confidential Compute Apps*.
 
 **Live on Coston2.** [`0xB3834fBa…67e3`](https://coston2-explorer.flare.network/address/0xB3834fBa12EB884A240c69c0aB06225930f267e3) ·
-51 tests · allocates into **Firelight stXRP**, a real third-party vault holding ~100k FXRP.
+51 Solidity + 8 Go tests · allocates into **Firelight stXRP**, a real third-party vault holding
+~100k FXRP · [what does not work yet](#14-limitations)
 
 ---
 
@@ -29,7 +30,7 @@ Built for **Flare Summer Signal**, targeting both bounties — *Interoperable As
 9. [What is real and what is simulated](#9-what-is-real-and-what-is-simulated)
 10. [Deployed addresses](#10-deployed-addresses)
 11. [Running it](#11-running-it)
-12. [Engineering notes: three bugs worth reading about](#12-engineering-notes-three-bugs-worth-reading-about)
+12. [Engineering notes: what we learned the hard way](#12-engineering-notes-what-we-learned-the-hard-way)
 13. [Repository layout](#13-repository-layout)
 14. [Limitations](#14-limitations)
 15. [Roadmap](#15-roadmap)
@@ -113,7 +114,7 @@ so its confidentiality costs the depositor nothing in safety.
 ## 4. Architecture
 
 ```
-   Bitstamp XRP/USD                    ┌──────────────────────────────┐
+   XRP/USD market data                 ┌──────────────────────────────┐
           │                            │  Flare Confidential Compute  │
           │ Web2Json request           │                              │
           ▼                            │   risk budget from vol,      │
@@ -142,9 +143,14 @@ so its confidentiality costs the depositor nothing in safety.
 
 ### The rebalance lifecycle
 
-1. **Observe.** The relayer builds a Web2Json attestation request for Bitstamp's XRP/USD ticker and
-   submits it to `FdcHub`. Roughly 100 data providers independently fetch the URL, apply the same
-   jq transform, and vote. The round finalises in 90–180s and a Merkle proof is published.
+1. **Observe.** The relayer builds a Web2Json attestation request for an XRP/USD ticker and submits
+   it to `FdcHub`. Roughly 100 data providers independently fetch the URL, apply the same jq
+   transform, and vote. The round finalises in 90–180s and a Merkle proof is published.
+
+   > **Status:** the source must be one the *providers* will fetch, which is not the same set the
+   > verifier accepts — see [§12](#12-engineering-notes-what-we-learned-the-hard-way). Gemini,
+   > Coinbase and Coinpaprika are confirmed attesting; the shipped `signal_source.py` still points
+   > at Bitstamp, which validates but is never attested. Switching is tracked in `Todo.md`.
 
 2. **Decide.** The enclave receives the attested observation plus per-venue metadata (cap, declared
    liquidity, realised rate). It computes a *risk budget* — how much of the vault should be deployed
@@ -322,9 +328,13 @@ public, and a public strategy is an exploitable one (§3).
 
 ### FDC — Flare Data Connector, Web2Json
 
-Attests Bitstamp's XRP/USD ticker on-chain: price, VWAP, high/low, volume and signed 24h change,
+Attests an XRP/USD ticker on-chain — price, volatility inputs, volume and signed 24h change —
 verified by ~100 independent data providers. Each plan is bound by hash to exactly one attested
 observation, which must be fresh.
+
+Proof handling is **verified against live Coston2 data**: `offchain/verify_real_proof.py` rebuilds
+the `IWeb2Json.Proof` tuple from a real finalised attestation and the on-chain `FdcVerification`
+returns `true`. Choosing an attesting source is the one remaining step (§12).
 
 *Why it is not decorative:* this is the **input the strategy reacts to**. Without it the enclave
 could compute on anything it liked and nobody could check. Web2Json is Flare's newest attestation
@@ -454,7 +464,7 @@ Fund the deployer from the [Coston2 faucet](https://faucet.flare.network/coston2
 
 ---
 
-## 12. Engineering notes: three bugs worth reading about
+## 12. Engineering notes: what we learned the hard way
 
 Recorded because each cost real time and each would bite anyone building the same thing.
 
@@ -605,8 +615,13 @@ on-chain.
 **Capital in an async venue is not instantly redeemable.** Firelight settles out of band. The 30%
 cap bounds how much can be waiting at any moment, and `maxRedeem` never counts it.
 
-**One signal source.** Everything currently rests on Bitstamp. Coinbase, Gemini and Coinpaprika are
-verified reachable from the verifier; adding a second is mostly configuration.
+**The end-to-end rebalance has not run on-chain yet.** Every stage is individually verified against
+live Coston2 — request accepted and paid for, proof tuple accepted by the real `FdcVerification`,
+enclave signature recovered by the vault, all guardrails exercised — but the shipped signal source
+(Bitstamp) validates at the verifier and is never attested by the providers, so no proof for *our*
+request exists yet. Gemini, Coinbase and Coinpaprika are confirmed attesting, and a Gemini filter
+validates; moving to one of them requires reshaping the signal DTO, which is scoped in `Todo.md`.
+This is the single honest gap in the project and it is deliberately not papered over.
 
 **The strategy is deliberately simple.** A volatility-derived risk budget with a yield tilt. The
 contribution here is the trust boundary, not the alpha — and the boundary is what makes a

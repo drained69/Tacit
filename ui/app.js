@@ -200,13 +200,22 @@ async function wire() {
 
 async function refresh() {
   if (!vaultRead) return;
+
+  // A public RPC can take several seconds for the handful of round trips below. Without this the
+  // panel keeps showing its initial placeholder while every other number on the page is already
+  // live, which reads as a broken page rather than a slow one.
+  const alloc = $("allocation");
+  if (alloc.querySelector(".alloc-row") === null) {
+    alloc.innerHTML = '<p class="empty">Loading allocation from Coston2…</p>';
+  }
+
   try {
     const [
       totalAssets, teeIdentity, nonce, lastAt,
-      capBpsMax, turnoverBps, bandBps, signalAge, ftsoPrice, signal, venueCount,
+      venueCountA, turnoverBps, bandBps, signalAge, ftsoPrice, signal, venueCount,
     ] = await Promise.all([
       vaultRead.totalAssets(), vaultRead.teeIdentity(), vaultRead.rebalanceNonce(), vaultRead.lastRebalanceAt(),
-      firstVenueCap(), vaultRead.maxTurnoverBps(), vaultRead.priceBandBps(), vaultRead.maxSignalAge(),
+      vaultRead.venueCount(), vaultRead.maxTurnoverBps(), vaultRead.priceBandBps(), vaultRead.maxSignalAge(),
       vaultRead.lastFtsoPriceMicroUsd(), vaultRead.lastSignal(), vaultRead.venueCount(),
     ]);
 
@@ -220,8 +229,10 @@ async function refresh() {
     const priceOfOne = await vaultRead.convertToAssets(oneShare);
     $("share-price").textContent = Number(ethers.formatUnits(priceOfOne, assetDecimals)).toFixed(4);
 
+    await loadVenues(Number(venueCount));
+
     $("g-conservation").textContent = "enforced";
-    $("g-cap").textContent = `${Number(capBpsMax) / 100}%`;
+    $("g-cap").textContent = `${maxVenueCapBps() / 100}%`;
     $("g-turnover").textContent = `${Number(turnoverBps) / 100}%`;
     $("g-band").textContent = `±${Number(bandBps) / 100}%`;
     $("g-age").textContent = `< ${Number(signalAge) / 60}m`;
@@ -246,16 +257,43 @@ async function refresh() {
   }
 }
 
-async function firstVenueCap() {
-  // Every venue shares a cap in the reference deployment; show the max so the figure is a true
-  // upper bound rather than an example.
-  const n = Number(await vaultRead.venueCount());
-  let max = 0;
-  for (let i = 0; i < n; i++) {
-    const v = await vaultRead.venues(i);
-    if (v.active && Number(v.capBps) > max) max = Number(v.capBps);
-  }
-  return max;
+/// Reads every venue once and caches it for this refresh.
+///
+/// These used to be fetched sequentially, twice — once for the cap and again while drawing the
+/// allocation. With three venues that is eight round trips before the chart appears, and on a
+/// public RPC the panel sat on "Connect to load allocation" for six seconds while the rest of the
+/// page showed live numbers. It looks broken, which during a demo is the same as being broken.
+let venueCache = null;
+
+async function loadVenues(venueCount) {
+  const infos = await Promise.all(
+    Array.from({ length: venueCount }, (_, i) => vaultRead.venues(i))
+  );
+
+  const rates = await Promise.all(
+    infos.map(async (info) => {
+      try {
+        const c = new ethers.Contract(info.venue, VENUE_ABI, readProvider);
+        return Number(await c.ratePerYearBps()) / 100;
+      } catch {
+        return null; // a venue need not expose an APR; the vault does not require one
+      }
+    })
+  );
+
+  venueCache = infos.map((info, i) => ({
+    address: info.venue,
+    capBps: Number(info.capBps),
+    active: info.active,
+    liquidOnDemand: info.liquidOnDemand,
+    apr: rates[i],
+  }));
+  return venueCache;
+}
+
+/// Highest cap across active venues — a true upper bound rather than an example.
+function maxVenueCapBps() {
+  return (venueCache ?? []).reduce((m, v) => (v.active && v.capBps > m ? v.capBps : m), 0);
 }
 
 function renderSignal(sig, ftsoPrice, bandBps) {
@@ -310,36 +348,25 @@ async function renderAllocation(venueCount, totalAssets) {
   }
 
   const [assetsPerVenue, idle] = await vaultRead.allocations();
-  const rows = [];
+  const venues = venueCache ?? (await loadVenues(venueCount));
 
-  for (let i = 0; i < venueCount; i++) {
-    const info = await vaultRead.venues(i);
-    let apr = null;
-    try {
-      const venueContract = new ethers.Contract(info.venue, VENUE_ABI, readProvider);
-      apr = Number(await venueContract.ratePerYearBps()) / 100;
-    } catch { /* a venue need not expose an APR; the vault does not require it */ }
-
-    const amount = assetsPerVenue[i];
-    const pct = Number(amount) / Number(totalAssets) * 100;
-    rows.push({
-      name: info.name || `Venue ${String.fromCharCode(65 + i)}`,
-      // An illiquid venue is flagged rather than hidden: it changes what a depositor can redeem
-      // right now, which is the single most consequential thing on this page.
-      sub: [apr ? `${apr}% APR` : "", info.liquidOnDemand ? "" : "delayed exit"]
-        .filter(Boolean).join(" · "),
-      pct,
-      amount,
-      capPct: Number(info.capBps) / 100,
-      idle: false,
-      inactive: !info.active,
-    });
-  }
+  const rows = venues.map((v, i) => ({
+    name: `Venue ${String.fromCharCode(65 + i)}`,
+    // An illiquid venue is flagged rather than hidden: it changes what a depositor can redeem
+    // right now, which is the most consequential thing on this page.
+    sub: [v.apr ? `${v.apr}% APR` : "", v.liquidOnDemand ? "" : "delayed exit"]
+      .filter(Boolean).join(" · "),
+    pct: (Number(assetsPerVenue[i]) / Number(totalAssets)) * 100,
+    amount: assetsPerVenue[i],
+    capPct: v.capBps / 100,
+    idle: false,
+    inactive: !v.active,
+  }));
 
   rows.push({
     name: "Idle",
     sub: "held in vault",
-    pct: Number(idle) / Number(totalAssets) * 100,
+    pct: (Number(idle) / Number(totalAssets)) * 100,
     amount: idle,
     capPct: null,
     idle: true,

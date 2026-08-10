@@ -6,9 +6,23 @@ to for a reason: **the FDC verifier runs a restricted jq subset**. Empirically (
 So every decimal-to-integer conversion is done with string surgery — split on ".", pad the
 fraction, slice it — rather than arithmetic.
 
-The source is Bitstamp because most crypto APIs are simply unreachable from the verifier:
-CoinGecko, Binance, Kraken, OKX and CryptoCompare all return `INVALID: FETCH ERROR`. Bitstamp
-also happens to return every field as a string, which suits the string-op approach exactly.
+The source is Bitstamp because most crypto APIs are unreachable from the *verifier*: CoinGecko,
+Binance, Kraken, OKX and CryptoCompare all return `INVALID: FETCH ERROR`. Bitstamp also returns
+every field as a string, which suits the string-op approach exactly.
+
+    !! KNOWN GAP — Bitstamp validates here but is NEVER ATTESTED by the data providers.
+
+The verifier and the ~100 providers are different machines with different egress. A request can be
+VALID, submitted and paid for, and then silently never attested (see README §12). Confirmed by
+controlled experiment in `probe_attestation.py`, and `probe_sources.py` maps which hosts do work:
+
+    attesting      api.gemini.com, api.coinbase.com, api.coinpaprika.com
+    not attesting  www.bitstamp.net, api.exchange.coinbase.com
+
+Moving to an attesting source is not a URL swap: none of them expose the same field set, so the
+`MarketSignal` DTO has to be reshaped across Solidity, Go and this module together, and the
+conformance vector regenerated. That work is scoped in Todo.md and deliberately not half-done here,
+because a partial change would break the signing path in a way that surfaces only as `BadSigner`.
 
 `ABI_SIGNATURE` must stay byte-compatible with `SignalTypes.MarketSignal` in Solidity.
 """

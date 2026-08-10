@@ -40,7 +40,8 @@ contract EnclaveConformanceTest is Test {
         hex"1b";
 
     function _signal() internal pure returns (SignalTypes.MarketSignal memory) {
-        // Real Bitstamp XRP/USD observation, as attested through Web2Json.
+        // A real Bitstamp XRP/USD observation. Used here as a fixed vector for the hashing
+        // conformance check — this test is about Go/Solidity byte agreement, not attestation.
         return SignalTypes.MarketSignal({
             lastMicroUsd: 1_038_910,
             vwapMicroUsd: 1_040_130,

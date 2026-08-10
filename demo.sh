@@ -36,7 +36,7 @@ bold "4. Live FDC Web2Json request (network)"
 rule
 echo "Submitting the market-signal request to Flare's testnet verifier..."
 echo
-python3 offchain/signal.py 2>&1 | tail -4
+python3 offchain/signal_source.py 2>&1 | tail -4
 
 bold "5. Cross-language conformance"
 rule
