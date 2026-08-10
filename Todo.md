@@ -1,99 +1,74 @@
 # Todo
 
-Status **2026-08-09**. Deadline **2026-08-14 19:59 UTC** — five days.
+Status **2026-08-10**. Deadline **2026-08-14 19:59 UTC**.
 
 ---
 
 ## Done
 
-- Faucet claimed; deployer funded.
-- **Deployed to Coston2** — `0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed`, three venues, seeded.
-- **Real third-party venue integrated** — `ERC4626Venue` wrapping live Firelight stXRP (~100k FXRP).
-- **Async-vault hazard found and defended** — Firelight burns shares without paying; adapter now
-  reverts rather than booking phantom losses, and `liquidOnDemand` keeps redemption quotes honest.
-- **Venue isolation** — no single venue can freeze the vault or block redemption.
-- **Invariant fuzz campaign** — 6 invariants, ~16,000 hostile plans per run, all holding.
-- **UI live against Coston2**, flags illiquid venues.
-- README rewritten as the primary explainer.
+- **The full loop runs on-chain.** Coinpaprika observation attested by ~100 FDC providers → enclave
+  allocation → `executeRebalance` through every guardrail. Nonce 1, 0.71 FXRP deployed.
+  [tx `0xa3153a9b…7301`](https://coston2-explorer.flare.network/tx/0xa3153a9b722377a46b2e8155120c2cd392b5cba494a2adf8d3da22ea1b977301)
+- Signal reshaped around a source the providers actually fetch; freshness now derived from the
+  attestation's voting round rather than a payload timestamp.
+- Standards conformance: ERC-4626/165, Ownable2Step, Pausable, reentrancy guards on every entry
+  point (this closed a real bug — venues are called before shares are burned).
+- Real third-party venue (Firelight stXRP) integrated, with its async-withdrawal hazard defended.
+- Invariant campaign: ~16,000 hostile plans per run, all bounded.
+- UI live against the deployment; README + Explanation.md written.
 
-**60 Solidity tests + 8 Go tests passing.**
+**61 Solidity + 10 Go tests passing.**
 
 ---
 
-## Critical path
+## Remaining
 
-### 1. Finish the end-to-end rebalance — ONE step remains
+### 1. Claim the faucet, deposit more
 
-Substantially de-risked this session. What is now **proven against live Coston2**:
+The vault holds ~2.2 FXRP. Everything works at that size but the demo reads better with more.
+Address: `0x8C6eE34413f0c7D472Ab157fbED84De1234EF54F` — 10 FXRP per address per 24h.
 
-- the attestation request is accepted and paid for (fee bug fixed — it lives on
-  `FdcRequestFeeConfigurations`, not `FdcHub`)
-- **our proof handling is correct**: `verify_real_proof.py` rebuilds the `IWeb2Json.Proof` tuple
-  from a real finalised attestation and `FdcVerification.verifyWeb2Json()` returns **true**. The
-  tuple encoding, Merkle handling and payload decoding were the biggest unknown and are now closed.
+### 2. Verify contracts on the explorer
 
-What remains is exactly one thing: **the data providers will not fetch Bitstamp.** Confirmed by
-controlled experiment — a jsonplaceholder control submitted in the same round attests, Bitstamp
-does not, in either parameter shape.
-
-```bash
-# Which market-data hosts will the providers actually attest?
-./.venv/bin/python offchain/probe_sources.py          # submit candidates
-./.venv/bin/python offchain/probe_sources.py --check  # verdict once rounds finalise
-```
-
-Then point `offchain/signal_source.py` at whichever host wins and run the relayer. Everything
-downstream of the proof is already verified.
-
-```bash
-(cd tee && TACIT_TEE_KEY=$TACIT_TEE_KEY SIMULATED_TEE=true go run .) &
-./.venv/bin/python offchain/relayer.py --vault 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed --dry-run
-./.venv/bin/python offchain/relayer.py --vault 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed
-```
-
-Budget a full day:
-- [ ] `build_proof_tuple()` decodes the DA response — **untested against a real payload**. Most
-      likely thing to be wrong.
-- [ ] FDC round takes 90–180s; the DA layer returns 200 with an empty proof until finalisation.
-- [ ] Bitstamp's `timestamp` must still be inside `maxSignalAge` (1h) when the round finalises.
-- [ ] The vault holds only 4 FXRP — claim the faucet again first so allocations are visible.
-
-### 2. Claim the faucet again
-
-10 FXRP per address per 24h. More capital makes the demo legible.
-Address: `0x8C6eE34413f0c7D472Ab157fbED84De1234EF54F`
-
-### 3. Verify contracts on the explorer
-
-`forge script` auto-verify fails — the explorer's Etherscan-compatible API returns a shape `forge`
+`forge script` auto-verify fails: the explorer's Etherscan-compatible API returns a shape `forge`
 cannot deserialise. Verify manually so judges can read the source.
 
-### 4. Demo video
+```bash
+forge verify-contract 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed src/TacitVault.sol:TacitVault \
+  --chain 114 --verifier-url https://coston2-explorer.flare.network/api --etherscan-api-key any \
+  --constructor-args $(cast abi-encode "constructor(address,string,string,address)" \
+    0x0b6A3645c240605887a5532109323A3E12273dc7 "Tacit FXRP" "tFXRP" \
+    0x8C6eE34413f0c7D472Ab157fbED84De1234EF54F)
+```
+
+### 3. Demo video
 
 - [ ] Deposit in the UI; show the guardrail panel and the `delayed exit` flag
-- [ ] Trigger a rebalance; show the FDC round finalising and allocation bars moving
+- [ ] Run the relayer live — the FDC round finalising is the moment worth filming
+- [ ] Show `lastSignal()` on-chain matching what the relayer printed
 - [ ] **Money shot:** `forge test --match-contract AttackTheEnclave -vv`
-- [ ] **Second money shot:** the invariant campaign — thousands of hostile plans, all bounded
+- [ ] **Second:** the invariant campaign — thousands of hostile plans, all bounded
 - [ ] Close on the trust boundary: strategy quality vs fund safety
 
-### 5. Submit by midday 2026-08-14
+### 4. Submit by midday 2026-08-14
 
 - [ ] Both bounties
-- [ ] Lead with the Firelight integration and the async finding — that is what separates this from
-      a vault that allocates between mocks
+- [ ] Lead with: the loop runs, it allocates into a real third-party vault, and the guardrails are
+      proven against a fully authenticated malicious enclave
 - [ ] State the simulated-attestation limitation in the submission itself
 
 ---
 
-## Should do if time allows
+## Worth doing if time allows
 
-- [ ] **Second FDC source** (Coinbase/Gemini/Coinpaprika all verified reachable) — removes the
-      single point of failure at demo time.
+- [ ] **Second signal source.** Gemini and Coinbase attest; each has a different field set, so this
+      widens the DTO rather than swapping a URL. Removes a demo-time single point of failure.
 - [ ] **Attack console in the UI** — put the adversarial tests in front of a judge who never opens
       a shell.
 - [ ] **Rebalance history** — index `Rebalanced` events; allocation over time is the most
       persuasive evidence the strategy does anything.
-- [ ] **`requestRebalance` → relayer watcher**, so the loop is genuinely autonomous.
+- [ ] **`requestRebalance` → relayer watcher**, so the loop is genuinely autonomous rather than
+      manually triggered.
 - [ ] Async-aware adapter tracking Firelight claim tickets.
 
 ---
@@ -101,18 +76,17 @@ cannot deserialise. Verify manually so judges can read the source.
 ## Known gaps — say these out loud in the submission
 
 **`LendingVenue` is a testnet stand-in.** Coston2 has no live FXRP money markets. Firelight proves
-the adapter reaches real protocols; do not overstate the others.
+the adapter reaches real protocols; do not overstate the other two.
 
 **Attestation is simulated.** Only the hardware quote check. Everything else is real.
 
-**The relayer is trusted for liveness, not integrity.**
+**The relayer is trusted for liveness, not integrity.** It chooses when to run; it cannot alter an
+allocation.
 
-**Async venue capital is not instantly redeemable.** Bounded by the 30% cap; never counted in
+**Async venue capital is not instantly redeemable.** Bounded by the 30% cap, never counted in
 `maxRedeem`.
 
-**Data providers will not fetch every host the verifier can.** A `VALID` request can be paid for
-and silently never attested. This is now detected and reported loudly rather than polled to
-timeout, and `probe_sources.py` exists to answer it for any candidate.
+**Small TVL.** ~2.2 FXRP, faucet-limited.
 
 ---
 
@@ -120,10 +94,10 @@ timeout, and `probe_sources.py` exists to answer it for any candidate.
 
 | Area | Status |
 |---|---|
-| Contracts | 60 Solidity tests passing |
-| Enclave (Go) | 8 tests, vet + gofmt clean |
-| Web2Json pipeline | Request verified `VALID` against the live verifier |
-| Relayer | Submission + proof handling verified live; blocked only on an attestable source |
+| Contracts | 61 Solidity tests passing |
+| Enclave (Go) | 10 tests, vet + gofmt clean |
+| Web2Json pipeline | **Attested live**; proof verified by the real `FdcVerification` |
+| Relayer | **Run end to end successfully** |
 | UI | Live against Coston2 |
-| Deployment | **Live**, seeded, unverified in the explorer |
-| Git | Initialised, 2 commits |
+| Deployment | Live, seeded, one rebalance executed; unverified in the explorer |
+| Git | 8 commits |

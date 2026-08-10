@@ -12,8 +12,12 @@ Built for **Flare Summer Signal**, targeting both bounties — *Interoperable As
 *Confidential Compute Apps*.
 
 **Live on Coston2.** [`0x9446372C…F1Ed`](https://coston2-explorer.flare.network/address/0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed) ·
-60 Solidity + 8 Go tests · allocates into **Firelight stXRP**, a real third-party vault holding
-~100k FXRP · [what does not work yet](#14-limitations)
+61 Solidity + 10 Go tests · allocates into **Firelight stXRP**, a real third-party vault holding
+~100k FXRP
+
+**The full loop runs on-chain.** A market observation attested by ~100 FDC data providers, an
+allocation decided inside the enclave, and a rebalance executed through every guardrail —
+[tx `0xa3153a9b…7301`](https://coston2-explorer.flare.network/tx/0xa3153a9b722377a46b2e8155120c2cd392b5cba494a2adf8d3da22ea1b977301).
 
 > **Using it rather than reading about it?** → **[Explanation.md](Explanation.md)** covers
 > depositing, withdrawing, integrating, and exactly what you are and are not trusting.
@@ -252,6 +256,40 @@ is still rejected:
 
 The final test, `test_whatTheEnclaveCanStillDo`, demonstrates the residual risk instead of hiding
 it: a deliberately poor allocation is *accepted*, and every depositor still redeems in full.
+
+### It has actually run
+
+Not a claim about what would happen — a transaction:
+
+```
+[1/5] preparing Web2Json attestation request
+      source: https://api.coinpaprika.com/v1/tickers/xrp-xrp
+[2/5] submitting to FdcHub                         round : 1421638
+[3/5] waiting for ~100 data providers to vote and the round to finalise
+      attested price   : $1.022211
+      attested volume  : $720,363,840
+      change 1h/6h/24h : -0.28% / -0.81% / -1.97%
+[4/5] requesting allocation from the confidential enclave
+      targets   : [948, 2287, 0]  (mixed conditions; partial deployment)
+[5/5] submitting executeRebalance                  status: SUCCESS
+
+allocation after rebalance:
+  venue0:       0.208560 FXRP
+  venue1:       0.503140 FXRP
+  venue2:       0.000000 FXRP
+  idle  :       1.488300 FXRP
+```
+
+Readable back off the chain at any time:
+
+| Call | Value |
+|---|---|
+| `rebalanceNonce()` | `1` |
+| `lastSignal()` | `1022211, 720363840, -28, -81, -197` |
+| `lastFtsoPriceMicroUsd()` | `1022162` — 0.005% from the attested price, inside the ±5% band |
+
+The enclave read a market under mild stress and deployed 32% rather than its 90% maximum. That
+decision is its own; the vault's only opinion was that it was permitted.
 
 ### The invariant campaign
 
@@ -654,6 +692,9 @@ cap bounds how much can be waiting at any moment, and `maxRedeem` never counts i
 **One signal source.** Everything rests on Coinpaprika. Gemini and Coinbase are verified attesting
 and would serve as fallbacks, but each exposes a different field set, so adding one means widening
 the signal DTO rather than changing a URL.
+
+**The vault is small.** ~2.2 FXRP, limited by the testnet faucet. The mechanism is what is being
+demonstrated, not the size of the position.
 
 **The strategy is deliberately simple.** A volatility-derived risk budget with a yield tilt. The
 contribution here is the trust boundary, not the alpha — and the boundary is what makes a
