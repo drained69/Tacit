@@ -11,9 +11,12 @@ price the market never printed.
 Built for **Flare Summer Signal**, targeting both bounties — *Interoperable Asset Products* and
 *Confidential Compute Apps*.
 
-**Live on Coston2.** [`0xB3834fBa…67e3`](https://coston2-explorer.flare.network/address/0xB3834fBa12EB884A240c69c0aB06225930f267e3) ·
-51 Solidity + 8 Go tests · allocates into **Firelight stXRP**, a real third-party vault holding
+**Live on Coston2.** [`0xFA02DA64…A9A8`](https://coston2-explorer.flare.network/address/0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8) ·
+60 Solidity + 8 Go tests · allocates into **Firelight stXRP**, a real third-party vault holding
 ~100k FXRP · [what does not work yet](#14-limitations)
+
+> **Using it rather than reading about it?** → **[Explanation.md](Explanation.md)** covers
+> depositing, withdrawing, integrating, and exactly what you are and are not trusting.
 
 ---
 
@@ -86,6 +89,34 @@ Underneath, allocation is decided by an agent whose *reasoning* is private and w
 tightly bounded.
 
 The whole design is one sentence: **the enclave controls strategy quality, never fund safety.**
+
+### What it conforms to
+
+tFXRP is a plain ERC-4626 share. Anything that already speaks ERC-4626 speaks Tacit, with no
+special cases — which is the point of using the standard rather than inventing an interface.
+
+| Standard | Where |
+|---|---|
+| **ERC-4626** | Full vault interface; `previewDeposit`/`previewRedeem` match their actions exactly |
+| **ERC-20** | tFXRP is transferable and approvable like any token |
+| **ERC-165** | `supportsInterface` so integrators can discover the vault on-chain |
+| **Ownable2Step** | Ownership moves only when the new owner accepts, so a typo cannot orphan the vault |
+| **Pausable** | Emergency stop — see the asymmetry below |
+| **ReentrancyGuard** | Every ERC-4626 entry point, not just the ones that look risky |
+
+Two decisions in there are deliberate rather than default, and both are asserted by tests:
+
+**Pausing stops deposits and never withdrawals.** An operator who can freeze exits can rug, so the
+emergency control only blocks new money entering and new allocations going out. Redemption keeps
+working while paused.
+
+**Every entry point is `nonReentrant`.** OpenZeppelin's ERC-4626 is unguarded, which is correct for
+a vault holding its own assets and wrong for one that does not: `_withdraw` calls into venue
+contracts — foreign code — *before* shares are burned. `test_venueCannotReenterRedemption` builds a
+venue that re-enters on withdrawal and asserts the guard specifically, having first confirmed by
+mutation that the test fails when the modifier is removed.
+
+For how to actually use any of this, see **[Explanation.md](Explanation.md)**.
 
 ---
 
@@ -393,10 +424,10 @@ shown above the fold in the UI.
 
 | Contract | Address |
 |---|---|
-| **TacitVault** | [`0xB3834fBa12EB884A240c69c0aB06225930f267e3`](https://coston2-explorer.flare.network/address/0xB3834fBa12EB884A240c69c0aB06225930f267e3) |
-| Venue A — 8% APR, synchronous | [`0x49FBEB57dcA5EED7191C5E2193CB2a79f3DdC0B2`](https://coston2-explorer.flare.network/address/0x49FBEB57dcA5EED7191C5E2193CB2a79f3DdC0B2) |
-| Venue B — 15% APR, synchronous | [`0xdc08B081c411A9A7bB93AF266f6814F2199995f2`](https://coston2-explorer.flare.network/address/0xdc08B081c411A9A7bB93AF266f6814F2199995f2) |
-| **Firelight stXRP adapter** — async exit, 30% cap | [`0x83b5d93127c2d66f4ca44ac0e38abff057621DE5`](https://coston2-explorer.flare.network/address/0x83b5d93127c2d66f4ca44ac0e38abff057621DE5) |
+| **TacitVault** | [`0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8`](https://coston2-explorer.flare.network/address/0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8) |
+| Venue A — 8% APR, synchronous | [`0xCC2f2b4003cBa792f64c0769A2c45b2E77863eEB`](https://coston2-explorer.flare.network/address/0xCC2f2b4003cBa792f64c0769A2c45b2E77863eEB) |
+| Venue B — 15% APR, synchronous | [`0xCc36AC63379FE74E6C27414c6b0475c47606D72B`](https://coston2-explorer.flare.network/address/0xCc36AC63379FE74E6C27414c6b0475c47606D72B) |
+| **Firelight stXRP adapter** — async exit, 30% cap | [`0x4a901841Bccd01C990d8d7A0f25E4e4FCf05a124`](https://coston2-explorer.flare.network/address/0x4a901841Bccd01C990d8d7A0f25E4e4FCf05a124) |
 | ↳ wrapping live Firelight stXRP | [`0xC90D6847747b85d1fa2E07859869fb9fB72c0361`](https://coston2-explorer.flare.network/address/0xC90D6847747b85d1fa2E07859869fb9fB72c0361) |
 | FXRP (Flare's FAsset) | [`0x0b6A3645c240605887a5532109323A3E12273dc7`](https://coston2-explorer.flare.network/address/0x0b6A3645c240605887a5532109323A3E12273dc7) |
 | Enclave identity | `0x89E6C7AD562cf6e664aDBE425E9e323F9A8a3bC5` |
@@ -417,7 +448,7 @@ rebalance, 300s minimum interval, ±5% FTSO band, 1h maximum signal age.
 ### Tests
 
 ```bash
-forge test -vv                # 51 Solidity tests, incl. fork tests against live Firelight
+forge test -vv                # 60 Solidity tests, incl. fork tests against live Firelight
 (cd tee && go test ./...)     # 8 Go tests: strategy properties + encoding vectors
 ```
 
@@ -447,7 +478,7 @@ go run .
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install web3
 export PRIVATE_KEY=0x...
-./.venv/bin/python offchain/relayer.py --vault 0xB3834fBa12EB884A240c69c0aB06225930f267e3
+./.venv/bin/python offchain/relayer.py --vault 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8
 ```
 
 Add `--dry-run` to stop before submitting. The FDC round takes 90–180s; the relayer polls and
@@ -593,6 +624,7 @@ test/
   MaliciousEnclaveInvariant.t.sol  6 invariants — thousands of hostile plans
   EnclaveConformance.t.sol      5 tests — Go/Solidity byte compatibility
   FirelightForkIntegration.t.sol 5 tests — against live third-party bytecode
+  StandardsCompliance.t.sol     9 tests — ERC-4626/165 conformance, reentrancy, pause, ownership
 ```
 
 ---

@@ -7,7 +7,7 @@ Status **2026-08-09**. Deadline **2026-08-14 19:59 UTC** — five days.
 ## Done
 
 - Faucet claimed; deployer funded.
-- **Deployed to Coston2** — `0xB3834fBa12EB884A240c69c0aB06225930f267e3`, three venues, seeded.
+- **Deployed to Coston2** — `0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8`, three venues, seeded.
 - **Real third-party venue integrated** — `ERC4626Venue` wrapping live Firelight stXRP (~100k FXRP).
 - **Async-vault hazard found and defended** — Firelight burns shares without paying; adapter now
   reverts rather than booking phantom losses, and `liquidOnDemand` keeps redemption quotes honest.
@@ -16,7 +16,7 @@ Status **2026-08-09**. Deadline **2026-08-14 19:59 UTC** — five days.
 - **UI live against Coston2**, flags illiquid venues.
 - README rewritten as the primary explainer.
 
-**51 Solidity tests + 8 Go tests passing.**
+**60 Solidity tests + 8 Go tests passing.**
 
 ---
 
@@ -47,8 +47,8 @@ downstream of the proof is already verified.
 
 ```bash
 (cd tee && TACIT_TEE_KEY=$TACIT_TEE_KEY SIMULATED_TEE=true go run .) &
-./.venv/bin/python offchain/relayer.py --vault 0xB3834fBa12EB884A240c69c0aB06225930f267e3 --dry-run
-./.venv/bin/python offchain/relayer.py --vault 0xB3834fBa12EB884A240c69c0aB06225930f267e3
+./.venv/bin/python offchain/relayer.py --vault 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8 --dry-run
+./.venv/bin/python offchain/relayer.py --vault 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8
 ```
 
 Budget a full day:
@@ -120,7 +120,7 @@ timeout, and `probe_sources.py` exists to answer it for any candidate.
 
 | Area | Status |
 |---|---|
-| Contracts | 51 Solidity tests passing |
+| Contracts | 60 Solidity tests passing |
 | Enclave (Go) | 8 tests, vet + gofmt clean |
 | Web2Json pipeline | Request verified `VALID` against the live verifier |
 | Relayer | Submission + proof handling verified live; blocked only on an attestable source |

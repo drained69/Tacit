@@ -169,6 +169,10 @@
   </footer>
 </main>
 
-<script type="module" src="app.js"></script>
+<!-- The version query is not decoration. ES modules are cached per-origin and survive tab
+     closes, so after a redeploy the page keeps running the previous bundle and reads the previous
+     `deployments.json` with it — presenting a dead vault as an empty one, which looks like a
+     product bug rather than a stale cache. Bump this whenever ui/ changes. -->
+<script type="module" src="app.js?v=3"></script>
 </body>
 </html>

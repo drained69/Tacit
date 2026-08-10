@@ -487,7 +487,10 @@ async function boot() {
 
   if (!VAULT_ADDRESS) {
     try {
-      const res = await fetch("./deployments.json");
+      // `cache: "no-store"` matters: this file changes on every redeploy, and a cached copy
+      // silently points the whole page at a dead address — which then surfaces as an empty vault
+      // rather than as an error, because the old contract still exists and still answers.
+      const res = await fetch("./deployments.json", { cache: "no-store" });
       if (res.ok) VAULT_ADDRESS = (await res.json()).vault || "";
     } catch { /* not deployed yet — the page still renders and explains itself */ }
   }

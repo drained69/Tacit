@@ -1,12 +1,12 @@
 {
   "network": "coston2",
   "chainId": 114,
-  "vault": "0xB3834fBa12EB884A240c69c0aB06225930f267e3",
+  "vault": "0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8",
   "asset": "0x0b6A3645c240605887a5532109323A3E12273dc7",
   "venues": [
-    { "name": "Venue A (8% APR)",  "address": "0x49FBEB57dcA5EED7191C5E2193CB2a79f3DdC0B2", "liquidOnDemand": true },
-    { "name": "Venue B (15% APR)", "address": "0xdc08B081c411A9A7bB93AF266f6814F2199995f2", "liquidOnDemand": true },
-    { "name": "Firelight stXRP",   "address": "0x83b5d93127c2d66f4ca44ac0e38abff057621DE5", "liquidOnDemand": false,
+    { "name": "Venue A (8% APR)",  "address": "0xCC2f2b4003cBa792f64c0769A2c45b2E77863eEB", "liquidOnDemand": true },
+    { "name": "Venue B (15% APR)", "address": "0xCc36AC63379FE74E6C27414c6b0475c47606D72B", "liquidOnDemand": true },
+    { "name": "Firelight stXRP",   "address": "0x4a901841Bccd01C990d8d7A0f25E4e4FCf05a124", "liquidOnDemand": false,
       "target": "0xC90D6847747b85d1fa2E07859869fb9fB72c0361", "note": "live third-party FXRP vault; async withdrawals" }
   ],
   "teeIdentity": "0x89E6C7AD562cf6e664aDBE425E9e323F9A8a3bC5",

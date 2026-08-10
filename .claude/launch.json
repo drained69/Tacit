@@ -4,7 +4,13 @@
     {
       "name": "tacit-ui",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8123", "--directory", "ui"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8123",
+        "--directory",
+        "ui"
+      ],
       "port": 8123
     }
   ]

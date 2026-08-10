@@ -7,6 +7,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
@@ -41,7 +45,7 @@ import {SignalTypes} from "./lib/SignalTypes.sol";
 /// act. What it *cannot* do: move funds out of the vault, concentrate into one venue, churn the
 /// book, or act on an invented price. In short — the enclave controls strategy quality, never
 /// fund safety. That boundary is the product.
-contract TacitVault is ERC4626, Ownable, ReentrancyGuard {
+contract TacitVault is ERC4626, Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using SignalTypes for SignalTypes.MarketSignal;
     using SignalTypes for SignalTypes.RebalancePlan;
@@ -369,7 +373,7 @@ contract TacitVault is ERC4626, Ownable, ReentrancyGuard {
         SignalTypes.RebalancePlan calldata plan,
         bytes calldata signature,
         IWeb2Json.Proof calldata signalProof
-    ) external nonReentrant {
+    ) external nonReentrant whenNotPaused {
         uint256 n = venues.length;
         if (n == 0) revert NoVenues();
 
@@ -540,6 +544,76 @@ contract TacitVault is ERC4626, Ownable, ReentrancyGuard {
     }
 
     // ---------------------------------------------------------------------
+    // ERC-4626 entry points
+    //
+    // OpenZeppelin's implementations are correct but unguarded, which is fine for a vault that
+    // holds its assets directly and wrong for one that does not. `_withdraw` calls out to venue
+    // contracts — foreign code — *before* `super._withdraw` burns shares and transfers. A
+    // malicious venue could therefore re-enter `redeem` at a moment when the caller's shares still
+    // exist and the vault's balance has already moved. Every entry point is guarded rather than
+    // just the ones that look risky, because which ones those are changes as venues are added.
+    //
+    // Deposits pause; withdrawals never do. An operator who can freeze exits can rug, so the
+    // emergency control deliberately only stops new money coming in and new allocations going out.
+    // ---------------------------------------------------------------------
+
+    function deposit(uint256 assets, address receiver)
+        public
+        override
+        nonReentrant
+        whenNotPaused
+        returns (uint256)
+    {
+        return super.deposit(assets, receiver);
+    }
+
+    function mint(uint256 shares, address receiver)
+        public
+        override
+        nonReentrant
+        whenNotPaused
+        returns (uint256)
+    {
+        return super.mint(shares, receiver);
+    }
+
+    /// @dev Intentionally callable while paused — see the note above.
+    function withdraw(uint256 assets, address receiver, address owner_)
+        public
+        override
+        nonReentrant
+        returns (uint256)
+    {
+        return super.withdraw(assets, receiver, owner_);
+    }
+
+    /// @dev Intentionally callable while paused — see the note above.
+    function redeem(uint256 shares, address receiver, address owner_)
+        public
+        override
+        nonReentrant
+        returns (uint256)
+    {
+        return super.redeem(shares, receiver, owner_);
+    }
+
+    /// @notice ERC-4626 requires `maxDeposit` to reflect real limits, including a pause.
+    function maxDeposit(address receiver) public view override returns (uint256) {
+        return paused() ? 0 : super.maxDeposit(receiver);
+    }
+
+    function maxMint(address receiver) public view override returns (uint256) {
+        return paused() ? 0 : super.maxMint(receiver);
+    }
+
+    /// @notice ERC-165 support, so integrators can discover the ERC-4626 interface on-chain.
+    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
+        return interfaceId == type(IERC4626).interfaceId
+            || interfaceId == type(IERC20).interfaceId
+            || interfaceId == type(IERC165).interfaceId;
+    }
+
+    // ---------------------------------------------------------------------
     // Administration
     // ---------------------------------------------------------------------
 
@@ -608,6 +682,15 @@ contract TacitVault is ERC4626, Ownable, ReentrancyGuard {
         conservationToleranceBps = conservationToleranceBps_;
 
         emit GuardrailsUpdated(maxTurnoverBps_, minRebalanceInterval_, priceBandBps_, maxSignalAge_);
+    }
+
+    /// @notice Halt new deposits and rebalances. Withdrawals are deliberately unaffected.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     /// @dev Escape hatch for a chain where the FTSO feed is unavailable. Deliberately owner-only
