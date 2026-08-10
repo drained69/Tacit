@@ -7,7 +7,7 @@ Status **2026-08-09**. Deadline **2026-08-14 19:59 UTC** — five days.
 ## Done
 
 - Faucet claimed; deployer funded.
-- **Deployed to Coston2** — `0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8`, three venues, seeded.
+- **Deployed to Coston2** — `0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed`, three venues, seeded.
 - **Real third-party venue integrated** — `ERC4626Venue` wrapping live Firelight stXRP (~100k FXRP).
 - **Async-vault hazard found and defended** — Firelight burns shares without paying; adapter now
   reverts rather than booking phantom losses, and `liquidOnDemand` keeps redemption quotes honest.
@@ -47,8 +47,8 @@ downstream of the proof is already verified.
 
 ```bash
 (cd tee && TACIT_TEE_KEY=$TACIT_TEE_KEY SIMULATED_TEE=true go run .) &
-./.venv/bin/python offchain/relayer.py --vault 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8 --dry-run
-./.venv/bin/python offchain/relayer.py --vault 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8
+./.venv/bin/python offchain/relayer.py --vault 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed --dry-run
+./.venv/bin/python offchain/relayer.py --vault 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed
 ```
 
 Budget a full day:

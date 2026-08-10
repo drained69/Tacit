@@ -3,7 +3,7 @@
 A guide to what Tacit is from the outside, and how each kind of user is expected to interact with
 it. The [README](README.md) explains *how it is built*; this explains *how it is used*.
 
-**Live on Coston2** — vault [`0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8`](https://coston2-explorer.flare.network/address/0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8)
+**Live on Coston2** — vault [`0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed`](https://coston2-explorer.flare.network/address/0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed)
 
 ---
 
@@ -76,11 +76,11 @@ Directly, if you prefer:
 ```bash
 # 1. Approve the vault to move your FXRP (amounts are 6dp — 5 FXRP is 5000000)
 cast send 0x0b6A3645c240605887a5532109323A3E12273dc7 \
-  "approve(address,uint256)" 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8 5000000 \
+  "approve(address,uint256)" 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed 5000000 \
   --rpc-url https://coston2-api.flare.network/ext/C/rpc --private-key $PRIVATE_KEY
 
 # 2. Deposit
-cast send 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8 \
+cast send 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed \
   "deposit(uint256,address)" 5000000 $YOUR_ADDRESS \
   --rpc-url https://coston2-api.flare.network/ext/C/rpc --private-key $PRIVATE_KEY
 ```
@@ -141,7 +141,7 @@ tFXRP is a **standard ERC-4626 vault share**. If your protocol already handles E
 tFXRP with no special cases.
 
 ```solidity
-IERC4626 tacit = IERC4626(0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8);
+IERC4626 tacit = IERC4626(0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed);
 
 tacit.asset();                       // FXRP
 tacit.totalAssets();                 // FXRP under management
@@ -259,7 +259,7 @@ You do not have to take any of this on trust.
 
 ```bash
 RPC=https://coston2-api.flare.network/ext/C/rpc
-VAULT=0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8
+VAULT=0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed
 
 # Size and share price
 cast call $VAULT "totalAssets()(uint256)"        --rpc-url $RPC

@@ -11,7 +11,7 @@ price the market never printed.
 Built for **Flare Summer Signal**, targeting both bounties — *Interoperable Asset Products* and
 *Confidential Compute Apps*.
 
-**Live on Coston2.** [`0xFA02DA64…A9A8`](https://coston2-explorer.flare.network/address/0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8) ·
+**Live on Coston2.** [`0x9446372C…F1Ed`](https://coston2-explorer.flare.network/address/0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed) ·
 60 Solidity + 8 Go tests · allocates into **Firelight stXRP**, a real third-party vault holding
 ~100k FXRP · [what does not work yet](#14-limitations)
 
@@ -428,10 +428,10 @@ shown above the fold in the UI.
 
 | Contract | Address |
 |---|---|
-| **TacitVault** | [`0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8`](https://coston2-explorer.flare.network/address/0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8) |
-| Venue A — 8% APR, synchronous | [`0xCC2f2b4003cBa792f64c0769A2c45b2E77863eEB`](https://coston2-explorer.flare.network/address/0xCC2f2b4003cBa792f64c0769A2c45b2E77863eEB) |
-| Venue B — 15% APR, synchronous | [`0xCc36AC63379FE74E6C27414c6b0475c47606D72B`](https://coston2-explorer.flare.network/address/0xCc36AC63379FE74E6C27414c6b0475c47606D72B) |
-| **Firelight stXRP adapter** — async exit, 30% cap | [`0x4a901841Bccd01C990d8d7A0f25E4e4FCf05a124`](https://coston2-explorer.flare.network/address/0x4a901841Bccd01C990d8d7A0f25E4e4FCf05a124) |
+| **TacitVault** | [`0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed`](https://coston2-explorer.flare.network/address/0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed) |
+| Venue A — 8% APR, synchronous | [`0xeAa13D09e5d501B108c68c2c158eA23e8f64f0e2`](https://coston2-explorer.flare.network/address/0xeAa13D09e5d501B108c68c2c158eA23e8f64f0e2) |
+| Venue B — 15% APR, synchronous | [`0x087D3C7d91af876078863b46ed835B5D0142D66a`](https://coston2-explorer.flare.network/address/0x087D3C7d91af876078863b46ed835B5D0142D66a) |
+| **Firelight stXRP adapter** — async exit, 30% cap | [`0x0F7fF8Db9EC2bdA72A1B4DA34e0B484AF3D1c351`](https://coston2-explorer.flare.network/address/0x0F7fF8Db9EC2bdA72A1B4DA34e0B484AF3D1c351) |
 | ↳ wrapping live Firelight stXRP | [`0xC90D6847747b85d1fa2E07859869fb9fB72c0361`](https://coston2-explorer.flare.network/address/0xC90D6847747b85d1fa2E07859869fb9fB72c0361) |
 | FXRP (Flare's FAsset) | [`0x0b6A3645c240605887a5532109323A3E12273dc7`](https://coston2-explorer.flare.network/address/0x0b6A3645c240605887a5532109323A3E12273dc7) |
 | Enclave identity | `0x89E6C7AD562cf6e664aDBE425E9e323F9A8a3bC5` |
@@ -482,7 +482,7 @@ go run .
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install web3
 export PRIVATE_KEY=0x...
-./.venv/bin/python offchain/relayer.py --vault 0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8
+./.venv/bin/python offchain/relayer.py --vault 0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed
 ```
 
 Add `--dry-run` to stop before submitting. The FDC round takes 90–180s; the relayer polls and

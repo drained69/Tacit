@@ -48,7 +48,7 @@ const VAULT_ABI = [
   "function maxSignalAge() view returns (uint32)",
   "function conservationToleranceBps() view returns (uint16)",
   "function lastFtsoPriceMicroUsd() view returns (uint256)",
-  "function lastSignal() view returns (uint256 lastMicroUsd, uint256 vwapMicroUsd, uint256 highMicroUsd, uint256 lowMicroUsd, uint256 volumeXrp, int256 changeBps, uint256 obsTimestamp)",
+  "function lastSignal() view returns (uint256 priceMicroUsd, uint256 volume24hUsd, int256 change1hBps, int256 change6hBps, int256 change24hBps)",
   "function deposit(uint256 assets, address receiver) returns (uint256)",
   "function withdraw(uint256 assets, address receiver, address owner) returns (uint256)",
   "function requestRebalance()",
@@ -237,7 +237,7 @@ async function refresh() {
     $("g-band").textContent = `±${Number(bandBps) / 100}%`;
     $("g-age").textContent = `< ${Number(signalAge) / 60}m`;
 
-    renderSignal(signal, ftsoPrice, bandBps);
+    renderSignal(signal, ftsoPrice, bandBps, timeAgo(lastAt));
     await renderAllocation(Number(venueCount), totalAssets);
 
     if (account) {
@@ -296,8 +296,8 @@ function maxVenueCapBps() {
   return (venueCache ?? []).reduce((m, v) => (v.active && v.capBps > m ? v.capBps : m), 0);
 }
 
-function renderSignal(sig, ftsoPrice, bandBps) {
-  const hasSignal = sig.obsTimestamp > 0n;
+function renderSignal(sig, ftsoPrice, bandBps, lastAtLabel) {
+  const hasSignal = sig.priceMicroUsd > 0n;
   if (!hasSignal) {
     $("sig-price").textContent = "no rebalance yet";
     ["sig-vwap", "sig-range", "sig-volume", "sig-change", "sig-time"].forEach(
@@ -309,13 +309,13 @@ function renderSignal(sig, ftsoPrice, bandBps) {
     return;
   }
 
-  $("sig-price").textContent = fmtMicro(sig.lastMicroUsd);
-  $("sig-vwap").textContent = fmtMicro(sig.vwapMicroUsd);
-  $("sig-range").textContent = `${fmtMicro(sig.lowMicroUsd, 4)} – ${fmtMicro(sig.highMicroUsd, 4)}`;
-  $("sig-volume").textContent = `${Number(sig.volumeXrp).toLocaleString()} XRP`;
-  $("sig-time").textContent = timeAgo(sig.obsTimestamp);
+  $("sig-price").textContent = fmtMicro(sig.priceMicroUsd);
+  $("sig-vwap").textContent = `${(Number(sig.change1hBps) / 100).toFixed(2)}%`;
+  $("sig-range").textContent = `${(Number(sig.change6hBps) / 100).toFixed(2)}%`;
+  $("sig-volume").textContent = `$${Number(sig.volume24hUsd).toLocaleString()}`;
+  $("sig-time").textContent = lastAtLabel;
 
-  const changePct = Number(sig.changeBps) / 100;
+  const changePct = Number(sig.change24hBps) / 100;
   const changeEl = $("sig-change");
   changeEl.textContent = `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`;
   changeEl.className = `value ${changePct >= 0 ? "up" : "down"}`;
@@ -324,7 +324,7 @@ function renderSignal(sig, ftsoPrice, bandBps) {
   // is what turns "trust us" into something a reader can check.
   if (ftsoPrice > 0n) {
     $("ftso-price").textContent = fmtMicro(ftsoPrice);
-    const ref = Number(sig.lastMicroUsd);
+    const ref = Number(sig.priceMicroUsd);
     const ftso = Number(ftsoPrice);
     const deviationBps = Math.abs(ref - ftso) / ftso * 10000;
     const inBand = deviationBps <= Number(bandBps);

@@ -146,9 +146,9 @@
     </p>
     <div class="signal-grid" id="signal-grid">
       <div class="sig"><span class="label">Price</span><span class="value" id="sig-price">—</span></div>
-      <div class="sig"><span class="label">VWAP</span><span class="value" id="sig-vwap">—</span></div>
-      <div class="sig"><span class="label">24h range</span><span class="value" id="sig-range">—</span></div>
-      <div class="sig"><span class="label">Volume</span><span class="value" id="sig-volume">—</span></div>
+      <div class="sig"><span class="label">1h change</span><span class="value" id="sig-vwap">—</span></div>
+      <div class="sig"><span class="label">6h change</span><span class="value" id="sig-range">—</span></div>
+      <div class="sig"><span class="label">24h volume</span><span class="value" id="sig-volume">—</span></div>
       <div class="sig"><span class="label">24h change</span><span class="value" id="sig-change">—</span></div>
       <div class="sig"><span class="label">Observed</span><span class="value" id="sig-time">—</span></div>
     </div>
@@ -173,6 +173,6 @@
      closes, so after a redeploy the page keeps running the previous bundle and reads the previous
      `deployments.json` with it — presenting a dead vault as an empty one, which looks like a
      product bug rather than a stale cache. Bump this whenever ui/ changes. -->
-<script type="module" src="app.js?v=3"></script>
+<script type="module" src="app.js?v=4"></script>
 </body>
 </html>
