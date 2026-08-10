@@ -6,13 +6,11 @@
   "nonce": 0,
   "deadline": 1786400000,
   "signal": {
-    "LastMicroUSD": 1038910,
-    "VWAPMicroUSD": 1040130,
-    "HighMicroUSD": 1048060,
-    "LowMicroUSD": 1030290,
-    "VolumeXRP": 8957657,
-    "ChangeBps": -22,
-    "ObsTimestamp": 1786281701
+    "PriceMicroUSD": 1037218,
+    "Volume24hUSD": 594409405,
+    "Change1hBps": 8,
+    "Change6hBps": -54,
+    "Change24hBps": -39
   },
   "venues": [
     { "name": "conservative", "ratePerYearBp": 800,  "capBps": 6000, "liquidityBps": 10000 },

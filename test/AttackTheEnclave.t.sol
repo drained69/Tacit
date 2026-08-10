@@ -98,18 +98,29 @@ contract AttackTheEnclaveTest is Test {
 
     function _signal() internal view returns (SignalTypes.MarketSignal memory) {
         return SignalTypes.MarketSignal({
-            lastMicroUsd: 1_038_910,
-            vwapMicroUsd: 1_040_130,
-            highMicroUsd: 1_048_060,
-            lowMicroUsd: 1_030_290,
-            volumeXrp: 8_957_657,
-            changeBps: -22,
-            obsTimestamp: block.timestamp
+            priceMicroUsd: 1_037_218,
+            volume24hUsd: 594_409_405,
+            change1hBps: 8,
+            change6hBps: -54,
+            change24hBps: -39
         });
     }
 
-    function _proof(SignalTypes.MarketSignal memory s) internal pure returns (IWeb2Json.Proof memory p) {
+    // Mirrors of the vault's voting-epoch constants. Kept local and `pure` on purpose: a helper
+    // that calls the vault would issue a *non-reverting* call after `vm.expectRevert()` is armed,
+    // which Foundry then reports as "next call did not revert as expected" — a failure with no
+    // relationship to what is being tested.
+    uint64 constant ROUND_ZERO_TS = 1_658_430_000;
+    uint64 constant ROUND_SECONDS = 90;
+
+    function _roundAt(uint256 ts) internal pure returns (uint64) {
+        if (ts <= ROUND_ZERO_TS) return 0;
+        return uint64((ts - ROUND_ZERO_TS) / ROUND_SECONDS);
+    }
+
+    function _proof(SignalTypes.MarketSignal memory s) internal view returns (IWeb2Json.Proof memory p) {
         p.data.responseBody.abiEncodedData = abi.encode(s);
+        p.data.votingRound = _roundAt(block.timestamp);
     }
 
     function _signedPlan(uint16[] memory targets, SignalTypes.MarketSignal memory s)
@@ -121,7 +132,7 @@ contract AttackTheEnclaveTest is Test {
             nonce: vault.rebalanceNonce(),
             deadline: uint64(block.timestamp + 1 hours),
             signalHash: SignalTypes.hashSignal(s),
-            refPriceMicroUsd: s.lastMicroUsd,
+            refPriceMicroUsd: s.priceMicroUsd,
             targetBps: targets
         });
         bytes32 digest = MessageHashUtils.toEthSignedMessageHash(
@@ -188,7 +199,7 @@ contract AttackTheEnclaveTest is Test {
     function test_attack3_fabricatePrice() public {
         vm.warp(block.timestamp + 601);
         SignalTypes.MarketSignal memory s = _signal();
-        s.lastMicroUsd = 5_000_000; // claim XRP is $5.00 while FTSO reports ~$1.04
+        s.priceMicroUsd = 5_000_000; // claim XRP is $5.00 while FTSO reports ~$1.04
         (SignalTypes.RebalancePlan memory p, bytes memory sig) = _signedPlan(_t2(3_000, 3_000), s);
 
         vm.expectRevert();
@@ -241,7 +252,7 @@ contract AttackTheEnclaveTest is Test {
 
         SignalTypes.MarketSignal memory attested = _signal();
         SignalTypes.MarketSignal memory invented = _signal();
-        invented.volumeXrp = 500_000_000; // pretend a huge volume spike justified the trade
+        invented.volume24hUsd = 999_999_999; // pretend a huge volume spike justified the trade
 
         (SignalTypes.RebalancePlan memory p, bytes memory sig) = _signedPlan(_t2(3_000, 3_000), invented);
 
@@ -251,11 +262,21 @@ contract AttackTheEnclaveTest is Test {
         console2.log("ATTACK 5  compute on an invented volume spike, submit the real FDC proof");
         console2.log("  -> reverted: SignalMismatch (plan not bound to the attested observation)");
 
-        // Replaying a genuinely-attested but stale observation is blocked too.
-        vm.warp(block.timestamp + 2 hours);
+        // Replaying an observation attested in an old round is blocked too. The round, not the
+        // submission time, is what dates it — so waiting cannot make a stale proof usable.
+        // Jump to a realistic wall-clock first. Foundry starts at timestamp 1, which is *before*
+        // the voting-epoch origin, so every round number would be in the future and nothing could
+        // ever read as stale — the test would pass for the wrong reason.
+        vm.warp(uint256(ROUND_ZERO_TS) + 4_000_000 * uint256(ROUND_SECONDS));
         (SignalTypes.RebalancePlan memory p2, bytes memory sig2) = _signedPlan(_t2(3_000, 3_000), attested);
+
+        // Build the proof BEFORE arming expectRevert — `_proof` reads state, and a non-reverting
+        // call in between is what Foundry would report as the failure.
+        IWeb2Json.Proof memory oldProof = _proof(attested);
+        oldProof.data.votingRound -= uint64(2 hours / ROUND_SECONDS); // attested two hours ago
+
         vm.expectRevert();
-        vault.executeRebalance(p2, sig2, _proof(attested));
+        vault.executeRebalance(p2, sig2, oldProof);
         console2.log("  -> stale replay reverted: SignalStale (1h max age)\n");
     }
 

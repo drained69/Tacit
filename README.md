@@ -145,7 +145,7 @@ so its confidentiality costs the depositor nothing in safety.
 ## 4. Architecture
 
 ```
-   XRP/USD market data                 ┌──────────────────────────────┐
+   Coinpaprika XRP ticker              ┌──────────────────────────────┐
           │                            │  Flare Confidential Compute  │
           │ Web2Json request           │                              │
           ▼                            │   risk budget from vol,      │
@@ -174,14 +174,13 @@ so its confidentiality costs the depositor nothing in safety.
 
 ### The rebalance lifecycle
 
-1. **Observe.** The relayer builds a Web2Json attestation request for an XRP/USD ticker and submits
-   it to `FdcHub`. Roughly 100 data providers independently fetch the URL, apply the same jq
+1. **Observe.** The relayer builds a Web2Json attestation request for Coinpaprika's XRP ticker and
+   submits it to `FdcHub`. Roughly 100 data providers independently fetch the URL, apply the same jq
    transform, and vote. The round finalises in 90–180s and a Merkle proof is published.
 
-   > **Status:** the source must be one the *providers* will fetch, which is not the same set the
-   > verifier accepts — see [§12](#12-engineering-notes-what-we-learned-the-hard-way). Gemini,
-   > Coinbase and Coinpaprika are confirmed attesting; the shipped `signal_source.py` still points
-   > at Bitstamp, which validates but is never attested. Switching is tracked in `Todo.md`.
+   Coinpaprika is not an arbitrary choice: the source has to be one the *providers* will fetch,
+   which is a smaller set than the verifier accepts (§12), and it is the only attesting source
+   carrying price, volume **and** several return horizons in one document.
 
 2. **Decide.** The enclave receives the attested observation plus per-venue metadata (cap, declared
    liquidity, realised rate). It computes a *risk budget* — how much of the vault should be deployed
@@ -359,13 +358,18 @@ public, and a public strategy is an exploitable one (§3).
 
 ### FDC — Flare Data Connector, Web2Json
 
-Attests an XRP/USD ticker on-chain — price, volatility inputs, volume and signed 24h change —
+Attests Coinpaprika's XRP ticker on-chain — price, 24h volume, and returns over 1h, 6h and 24h —
 verified by ~100 independent data providers. Each plan is bound by hash to exactly one attested
 observation, which must be fresh.
 
+**Freshness comes from the attestation's own voting round, not from a timestamp in the payload.**
+A timestamp inside the fetched document is a claim by the source; the round is the chain's record
+of when ~100 providers agreed on it, and a compromised endpoint cannot backdate it. The vault
+reconstructs the observation time as `FIRST_VOTING_ROUND_START_TS + votingRound × 90`.
+
 Proof handling is **verified against live Coston2 data**: `offchain/verify_real_proof.py` rebuilds
 the `IWeb2Json.Proof` tuple from a real finalised attestation and the on-chain `FdcVerification`
-returns `true`. Choosing an attesting source is the one remaining step (§12).
+returns `true`.
 
 *Why it is not decorative:* this is the **input the strategy reacts to**. Without it the enclave
 could compute on anything it liked and nobody could check. Web2Json is Flare's newest attestation
@@ -647,13 +651,9 @@ on-chain.
 **Capital in an async venue is not instantly redeemable.** Firelight settles out of band. The 30%
 cap bounds how much can be waiting at any moment, and `maxRedeem` never counts it.
 
-**The end-to-end rebalance has not run on-chain yet.** Every stage is individually verified against
-live Coston2 — request accepted and paid for, proof tuple accepted by the real `FdcVerification`,
-enclave signature recovered by the vault, all guardrails exercised — but the shipped signal source
-(Bitstamp) validates at the verifier and is never attested by the providers, so no proof for *our*
-request exists yet. Gemini, Coinbase and Coinpaprika are confirmed attesting, and a Gemini filter
-validates; moving to one of them requires reshaping the signal DTO, which is scoped in `Todo.md`.
-This is the single honest gap in the project and it is deliberately not papered over.
+**One signal source.** Everything rests on Coinpaprika. Gemini and Coinbase are verified attesting
+and would serve as fallbacks, but each exposes a different field set, so adding one means widening
+the signal DTO rather than changing a URL.
 
 **The strategy is deliberately simple.** A volatility-derived risk budget with a yield tilt. The
 contribution here is the trust boundary, not the alpha — and the boundary is what makes a

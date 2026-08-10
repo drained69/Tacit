@@ -75,13 +75,11 @@ contract MaliciousEnclave is Test {
         vm.warp(block.timestamp + timeJump);
 
         SignalTypes.MarketSignal memory s = SignalTypes.MarketSignal({
-            lastMicroUsd: bound(refPrice, 1, 10_000_000),
-            vwapMicroUsd: 1_040_130,
-            highMicroUsd: 1_048_060,
-            lowMicroUsd: 1_030_290,
-            volumeXrp: 8_957_657,
-            changeBps: changeBps,
-            obsTimestamp: block.timestamp
+            priceMicroUsd: bound(refPrice, 1, 10_000_000),
+            volume24hUsd: 594_409_405,
+            change1hBps: changeBps,
+            change6hBps: -54,
+            change24hBps: -39
         });
 
         uint16[] memory targets = new uint16[](2);
@@ -92,7 +90,7 @@ contract MaliciousEnclave is Test {
             nonce: vault.rebalanceNonce(),
             deadline: uint64(block.timestamp + 1 hours),
             signalHash: SignalTypes.hashSignal(s),
-            refPriceMicroUsd: s.lastMicroUsd,
+            refPriceMicroUsd: s.priceMicroUsd,
             targetBps: targets
         });
 

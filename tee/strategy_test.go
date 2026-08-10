@@ -9,14 +9,13 @@ import (
 )
 
 func calmSignal() strategy.MarketSignal {
+	// A real Coinpaprika XRP observation, matching test/EnclaveConformance.t.sol.
 	return strategy.MarketSignal{
-		LastMicroUSD: 1_038_910,
-		VWAPMicroUSD: 1_040_130,
-		HighMicroUSD: 1_048_060,
-		LowMicroUSD:  1_030_290,
-		VolumeXRP:    8_957_657,
-		ChangeBps:    -22,
-		ObsTimestamp: 1_786_281_701,
+		PriceMicroUSD: 1_037_218,
+		Volume24hUSD:  594_409_405,
+		Change1hBps:   8,
+		Change6hBps:   -54,
+		Change24hBps:  -39,
 	}
 }
 
@@ -35,9 +34,9 @@ func TestComputeNeverOverAllocates(t *testing.T) {
 
 	cases := map[string]strategy.MarketSignal{
 		"calm":       calmSignal(),
-		"crash":      {LastMicroUSD: 800_000, VWAPMicroUSD: 900_000, HighMicroUSD: 1_100_000, LowMicroUSD: 780_000, VolumeXRP: 40_000_000, ChangeBps: -2200, ObsTimestamp: 1},
-		"melt-up":    {LastMicroUSD: 1_500_000, VWAPMicroUSD: 1_400_000, HighMicroUSD: 1_520_000, LowMicroUSD: 1_300_000, VolumeXRP: 60_000_000, ChangeBps: 1800, ObsTimestamp: 1},
-		"thin":       {LastMicroUSD: 1_038_910, VWAPMicroUSD: 1_040_130, HighMicroUSD: 1_041_000, LowMicroUSD: 1_039_000, VolumeXRP: 50_000, ChangeBps: 5, ObsTimestamp: 1},
+		"crash":      {PriceMicroUSD: 800_000, Volume24hUSD: 4_000_000_000, Change1hBps: -900, Change6hBps: -1800, Change24hBps: -2200},
+		"melt-up":    {PriceMicroUSD: 1_500_000, Volume24hUSD: 6_000_000_000, Change1hBps: 600, Change6hBps: 1200, Change24hBps: 1800},
+		"thin":       {PriceMicroUSD: 1_037_218, Volume24hUSD: 1_000_000, Change1hBps: 2, Change6hBps: 3, Change24hBps: 5},
 		"degenerate": {},
 	}
 
@@ -66,8 +65,9 @@ func TestVolatilityReducesDeployment(t *testing.T) {
 
 	calm := calmSignal()
 	volatile := calmSignal()
-	volatile.HighMicroUSD = 1_200_000
-	volatile.LowMicroUSD = 900_000
+	volatile.Change1hBps = 400
+	volatile.Change6hBps = 900
+	volatile.Change24hBps = 1500
 
 	sum := func(d strategy.Decision) int {
 		var s int
@@ -106,7 +106,7 @@ func TestHigherYieldVenueGetsMoreCapital(t *testing.T) {
 // Pins the exact vector asserted by test/EnclaveConformance.t.sol. If this changes, that Solidity
 // test must be regenerated in the same commit or on-chain rebalances start failing as BadSigner.
 func TestSignalHashMatchesSolidityVector(t *testing.T) {
-	const want = "992f847713d8504d9117a34c7d2490129b6e4475518f0a4f8df225eeb1781ec2"
+	const want = "00cc5432c89bc2b487d78a3c3c3f74be53d507f523111c7c9c69f863a5402101"
 	got := hex.EncodeToString(HashSignal(calmSignal()))
 	if got != want {
 		t.Fatalf("signal hash drifted from the Solidity vector:\n got  %s\n want %s", got, want)
@@ -128,10 +128,10 @@ func TestPackUint16SlicePadsToWords(t *testing.T) {
 	}
 }
 
-// changeBps is negative whenever XRP is down on the day, so two's complement is on the hot path.
+// Returns are negative whenever XRP is down, so two's complement is on the hot path.
 func TestNegativeInt256Encoding(t *testing.T) {
-	w := ethabi.EncodeInt256(-22)
-	const want = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffea"
+	w := ethabi.EncodeInt256(-54)
+	const want = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffca"
 	if got := hex.EncodeToString(w[:]); got != want {
 		t.Fatalf("two's complement encoding wrong:\n got  %s\n want %s", got, want)
 	}
@@ -146,5 +146,57 @@ func TestIdentityDerivation(t *testing.T) {
 	const want = "e05fcc23807536bee418f142d19fa0d21bb0cff7"
 	if got := hex.EncodeToString(key.Address[:]); got != want {
 		t.Fatalf("address derivation wrong:\n got  %s\n want %s", got, want)
+	}
+}
+
+// A fast move should read as more volatile than the same move spread over a day. Without the
+// sqrt-time scaling the model would systematically under-react to exactly the moves that matter.
+func TestRecentMoveCountsHarderThanSlowMove(t *testing.T) {
+	p := strategy.DefaultParams()
+	venues := twoVenues()
+
+	slow := calmSignal()
+	slow.Change1hBps, slow.Change6hBps, slow.Change24hBps = 0, 0, -300
+
+	fast := calmSignal()
+	fast.Change1hBps, fast.Change6hBps, fast.Change24hBps = -300, 0, 0
+
+	sum := func(d strategy.Decision) int {
+		var s int
+		for _, t := range d.TargetBps {
+			s += int(t)
+		}
+		return s
+	}
+
+	slowTotal := sum(strategy.Compute(slow, venues, p))
+	fastTotal := sum(strategy.Compute(fast, venues, p))
+
+	if fastTotal >= slowTotal {
+		t.Fatalf("a 3%% move in one hour (%d) should deploy less than the same move over a day (%d)",
+			fastTotal, slowTotal)
+	}
+}
+
+// A crash must not somehow deploy more than a calm market.
+func TestCrashDeploysLessThanCalm(t *testing.T) {
+	p := strategy.DefaultParams()
+	venues := twoVenues()
+
+	crash := strategy.MarketSignal{
+		PriceMicroUSD: 800_000, Volume24hUSD: 4_000_000_000,
+		Change1hBps: -900, Change6hBps: -1800, Change24hBps: -2200,
+	}
+
+	sum := func(d strategy.Decision) int {
+		var s int
+		for _, t := range d.TargetBps {
+			s += int(t)
+		}
+		return s
+	}
+
+	if sum(strategy.Compute(crash, venues, p)) >= sum(strategy.Compute(calmSignal(), venues, p)) {
+		t.Fatal("crash conditions must not deploy more than calm conditions")
 	}
 }

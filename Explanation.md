@@ -175,7 +175,7 @@ event RebalanceRequested(uint256 nonce, uint256 totalAssets, uint64 timestamp);
 ```
 
 `Rebalanced` is the interesting one: it gives you the allocation history and the hash of the market
-observation each decision was based on.
+observation each decision was based on. Pair it with `lastSignal()` to see the actual inputs.
 
 ---
 
@@ -273,8 +273,9 @@ cast call $VAULT "maxTurnoverBps()(uint16)"      --rpc-url $RPC
 cast call $VAULT "priceBandBps()(uint16)"        --rpc-url $RPC
 cast call $VAULT "maxSignalAge()(uint32)"        --rpc-url $RPC
 
-# The exact market observation behind the last decision
-cast call $VAULT "lastSignal()(uint256,uint256,uint256,uint256,uint256,int256,uint256)" --rpc-url $RPC
+# The exact market observation behind the last decision:
+#   price (micro-USD), 24h volume (USD), then returns over 1h / 6h / 24h in basis points
+cast call $VAULT "lastSignal()(uint256,uint256,int256,int256,int256)" --rpc-url $RPC
 cast call $VAULT "lastFtsoPriceMicroUsd()(uint256)" --rpc-url $RPC
 ```
 
@@ -316,6 +317,13 @@ per-venue caps bound.
 **What happens if the enclave goes offline?**
 Nothing breaks. The vault stops rebalancing and holds its current allocation. Deposits and
 withdrawals are unaffected; they never touch the enclave.
+
+**How do I know the strategy acted on real data and not something invented?**
+`lastSignal()` returns the exact observation behind the last allocation, and that observation only
+reached the chain by being attested by ~100 independent FDC data providers. The plan is bound to it
+by hash, so the enclave cannot compute on one thing and submit another — `SignalMismatch` rejects
+it. You can also compare `lastFtsoPriceMicroUsd()` against the FTSO feed for that block: the vault
+already refused anything more than 5% away from it.
 
 **Why can't I withdraw my full balance sometimes?**
 Because part of it is in a venue that settles withdrawals late. The vault tells you the truth up

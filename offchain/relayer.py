@@ -1,6 +1,6 @@
 """End-to-end rebalance relayer.
 
-    Bitstamp  --Web2Json-->  FDC (~100 providers vote)  -->  proof on Coston2
+    Coinpaprika --Web2Json--> FDC (~100 providers vote)  -->  proof on Coston2
                                                               |
                                             FCC enclave  <----+  (confidential strategy)
                                                               |
@@ -71,23 +71,13 @@ VENUE_ABI = json.loads(
     '{"inputs":[],"name":"liquidityBps","outputs":[{"type":"uint16"}],"stateMutability":"view","type":"function"}]'
 )
 
-SIGNAL_FIELDS = (
-    "lastMicroUsd",
-    "vwapMicroUsd",
-    "highMicroUsd",
-    "lowMicroUsd",
-    "volumeXrp",
-    "changeBps",
-    "obsTimestamp",
-)
+
 
 
 def decode_signal(w3: Web3, abi_encoded_data: bytes) -> dict:
     """Decode the attested payload using the same tuple layout the contract expects."""
-    values = w3.codec.decode(
-        ["(uint256,uint256,uint256,uint256,uint256,int256,uint256)"], abi_encoded_data
-    )[0]
-    return dict(zip(SIGNAL_FIELDS, values))
+    values = w3.codec.decode([signal_mod.SIGNAL_TUPLE], abi_encoded_data)[0]
+    return dict(zip(signal_mod.SIGNAL_FIELDS, values))
 
 
 def call_enclave(url: str, chain_id: int, vault: str, nonce: int, signal: dict, venues: list[dict]) -> dict:
@@ -100,13 +90,11 @@ def call_enclave(url: str, chain_id: int, vault: str, nonce: int, signal: dict, 
         "vault": vault,
         "nonce": nonce,
         "signal": {
-            "LastMicroUSD": signal["lastMicroUsd"],
-            "VWAPMicroUSD": signal["vwapMicroUsd"],
-            "HighMicroUSD": signal["highMicroUsd"],
-            "LowMicroUSD": signal["lowMicroUsd"],
-            "VolumeXRP": signal["volumeXrp"],
-            "ChangeBps": signal["changeBps"],
-            "ObsTimestamp": signal["obsTimestamp"],
+            "PriceMicroUSD": signal["priceMicroUsd"],
+            "Volume24hUSD": signal["volume24hUsd"],
+            "Change1hBps": signal["change1hBps"],
+            "Change6hBps": signal["change6hBps"],
+            "Change24hBps": signal["change24hBps"],
         },
         "venues": venues,
     }
@@ -173,9 +161,12 @@ def main() -> int:
     proof_body = fdc.fetch_proof(attestation)
     proof_tuple = build_proof_tuple(proof_body, w3)
     signal = decode_signal(w3, proof_tuple[1][5][0])
-    print(f"      attested price  : ${signal['lastMicroUsd'] / 1e6:.6f}")
-    print(f"      attested volume : {signal['volumeXrp']:,} XRP")
-    print(f"      attested change : {signal['changeBps'] / 100:+.2f}%")
+    print(f"      attested price   : ${signal['priceMicroUsd'] / 1e6:.6f}")
+    print(f"      attested volume  : ${signal['volume24hUsd']:,}")
+    print(f"      change 1h/6h/24h : "
+          f"{signal['change1hBps'] / 100:+.2f}% / "
+          f"{signal['change6hBps'] / 100:+.2f}% / "
+          f"{signal['change24hBps'] / 100:+.2f}%")
 
     # 3. Ask the enclave for an allocation. The strategy itself never leaves the TEE.
     print("\n[4/5] requesting allocation from the confidential enclave")

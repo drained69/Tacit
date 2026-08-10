@@ -98,18 +98,40 @@ contract TacitVaultTest is Test {
 
     function _signal() internal view returns (SignalTypes.MarketSignal memory) {
         return SignalTypes.MarketSignal({
-            lastMicroUsd: 1_038_910,
-            vwapMicroUsd: 1_040_130,
-            highMicroUsd: 1_048_060,
-            lowMicroUsd: 1_030_290,
-            volumeXrp: 8_957_657,
-            changeBps: -22,
-            obsTimestamp: block.timestamp
+            priceMicroUsd: 1_037_218,
+            volume24hUsd: 594_409_405,
+            change1hBps: 8,
+            change6hBps: -54,
+            change24hBps: -39
         });
     }
 
-    function _proof(SignalTypes.MarketSignal memory s) internal pure returns (IWeb2Json.Proof memory p) {
+    // Mirrors of the vault's voting-epoch constants. Kept local and `pure` on purpose: a helper
+    // that calls the vault would issue a *non-reverting* call after `vm.expectRevert()` is armed,
+    // which Foundry then reports as "next call did not revert as expected" — a failure with no
+    // relationship to what is being tested.
+    uint64 constant ROUND_ZERO_TS = 1_658_430_000;
+    uint64 constant ROUND_SECONDS = 90;
+
+    function _roundAt(uint256 ts) internal pure returns (uint64) {
+        if (ts <= ROUND_ZERO_TS) return 0;
+        return uint64((ts - ROUND_ZERO_TS) / ROUND_SECONDS);
+    }
+
+    /// @dev Freshness is derived from the attestation's voting round rather than a payload
+    ///      timestamp, so tests date their proofs the same way the chain does.
+    function _proof(SignalTypes.MarketSignal memory s) internal view returns (IWeb2Json.Proof memory p) {
         p.data.responseBody.abiEncodedData = abi.encode(s);
+        p.data.votingRound = _roundAt(block.timestamp);
+    }
+
+    function _proofAtRound(SignalTypes.MarketSignal memory s, uint64 round)
+        internal
+        pure
+        returns (IWeb2Json.Proof memory p)
+    {
+        p.data.responseBody.abiEncodedData = abi.encode(s);
+        p.data.votingRound = round;
     }
 
     function _plan(uint16[] memory targets, SignalTypes.MarketSignal memory s)
@@ -121,7 +143,7 @@ contract TacitVaultTest is Test {
             nonce: vault.rebalanceNonce(),
             deadline: uint64(block.timestamp + 1 hours),
             signalHash: SignalTypes.hashSignal(s),
-            refPriceMicroUsd: s.lastMicroUsd,
+            refPriceMicroUsd: s.priceMicroUsd,
             targetBps: targets
         });
     }
@@ -321,7 +343,7 @@ contract TacitVaultTest is Test {
         vm.warp(block.timestamp + 601);
 
         SignalTypes.MarketSignal memory s = _signal();
-        s.lastMicroUsd = 2_000_000; // enclave claims $2.00 while FTSO says ~$1.04
+        s.priceMicroUsd = 2_000_000; // enclave claims $2.00 while FTSO says ~$1.04
         SignalTypes.RebalancePlan memory p = _plan(_targets(3_000, 3_000), s);
 
         vm.expectRevert(
@@ -335,7 +357,7 @@ contract TacitVaultTest is Test {
         vm.warp(block.timestamp + 601);
 
         SignalTypes.MarketSignal memory s = _signal();
-        s.lastMicroUsd = 1_058_000; // ~1.8% above FTSO, inside the 5% band
+        s.priceMicroUsd = 1_058_000; // ~1.8% above FTSO, inside the 5% band
         SignalTypes.RebalancePlan memory p = _plan(_targets(3_000, 3_000), s);
 
         vault.executeRebalance(p, _sign(p, TEE_PK), _proof(s));
@@ -376,7 +398,7 @@ contract TacitVaultTest is Test {
 
         SignalTypes.MarketSignal memory attested = _signal();
         SignalTypes.MarketSignal memory claimed = _signal();
-        claimed.volumeXrp = 99_999_999; // enclave pretends it saw a volume spike
+        claimed.volume24hUsd = 999_999_999; // enclave pretends it saw a volume spike
 
         SignalTypes.RebalancePlan memory p = _plan(_targets(3_000, 3_000), claimed);
 
@@ -390,17 +412,35 @@ contract TacitVaultTest is Test {
         vault.executeRebalance(p, _sign(p, TEE_PK), _proof(attested));
     }
 
+    /// @dev The observation is dated by the round it was attested in, so an old round is stale
+    ///      however recently the relayer submits it — which is the property that matters.
     function test_revert_staleSignal() public {
+        // Move to a realistic wall-clock so voting rounds are meaningful.
+        vm.warp(uint256(ROUND_ZERO_TS) + 4_000_000 * uint256(ROUND_SECONDS));
         _deposit(alice, 1_000 * M);
-        SignalTypes.MarketSignal memory s = _signal();
-        vm.warp(block.timestamp + 2 hours); // older than the 1h max age
 
+        SignalTypes.MarketSignal memory s = _signal();
         SignalTypes.RebalancePlan memory p = _plan(_targets(3_000, 3_000), s);
 
+        // Two hours older than now, against a one-hour maximum age.
+        uint64 staleRound = _roundAt(block.timestamp) - uint64(2 hours / ROUND_SECONDS);
+        uint256 observedAt = uint256(ROUND_ZERO_TS) + uint256(staleRound) * ROUND_SECONDS;
+
         vm.expectRevert(
-            abi.encodeWithSelector(TacitVault.SignalStale.selector, s.obsTimestamp, uint32(3_600))
+            abi.encodeWithSelector(TacitVault.SignalStale.selector, observedAt, uint32(3_600))
         );
+        vault.executeRebalance(p, _sign(p, TEE_PK), _proofAtRound(s, staleRound));
+    }
+
+    /// @notice A freshly-attested observation is accepted at realistic wall-clock times.
+    function test_freshRoundIsAccepted() public {
+        vm.warp(uint256(ROUND_ZERO_TS) + 4_000_000 * uint256(ROUND_SECONDS));
+        _deposit(alice, 1_000 * M);
+
+        SignalTypes.MarketSignal memory s = _signal();
+        SignalTypes.RebalancePlan memory p = _plan(_targets(3_000, 3_000), s);
         vault.executeRebalance(p, _sign(p, TEE_PK), _proof(s));
+        assertEq(vault.rebalanceNonce(), 1);
     }
 
     // ===============================================================

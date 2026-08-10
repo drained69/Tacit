@@ -15,14 +15,17 @@ package strategy
 import "math"
 
 // MarketSignal mirrors the FDC-attested observation, in the same units the contract sees.
+//
+// The shape is fixed by what the FDC data providers will actually fetch — see SignalTypes.sol.
+// Three return horizons rather than a high–low range is not a compromise: the *shape* of recent
+// movement carries more information than its extent. A market down 2% steadily over 24h and one
+// that round-tripped 2% in the last hour have identical ranges and should be treated differently.
 type MarketSignal struct {
-	LastMicroUSD uint64
-	VWAPMicroUSD uint64
-	HighMicroUSD uint64
-	LowMicroUSD  uint64
-	VolumeXRP    uint64
-	ChangeBps    int64
-	ObsTimestamp uint64
+	PriceMicroUSD uint64
+	Volume24hUSD  uint64
+	Change1hBps   int64
+	Change6hBps   int64
+	Change24hBps  int64
 }
 
 // Venue describes one allocatable destination as the enclave sees it.
@@ -36,7 +39,7 @@ type Venue struct {
 // Params are the confidential tunables. In production these are baked into the enclave image
 // whose hash is allowlisted on-chain, so changing them changes the attested identity.
 type Params struct {
-	// Volatility above which the model begins retreating to idle, in basis points of VWAP.
+	// Volatility above which the model begins retreating to idle, in 24h-equivalent basis points.
 	VolCeilingBps float64
 	// Volatility below which the model is willing to deploy its full risk budget.
 	VolFloorBps float64
@@ -46,8 +49,10 @@ type Params struct {
 	MinDeployedBps float64
 	// How sharply a negative 24h move reduces deployment, per basis point of decline.
 	DrawdownSensitivity float64
-	// Volume below which liquidity is considered thin enough to justify holding back.
-	ThinVolumeXRP float64
+	// Volume below which liquidity is considered thin enough to justify holding back, in USD.
+	ThinVolumeUSD float64
+	// How much harder a move in the last hour counts than the same move over 24h.
+	RecentMoveWeight float64
 	// Weight applied to yield when splitting the risk budget between venues.
 	YieldTilt float64
 }
@@ -61,7 +66,8 @@ func DefaultParams() Params {
 		MaxDeployedBps:      9000,
 		MinDeployedBps:      2000,
 		DrawdownSensitivity: 12,
-		ThinVolumeXRP:       2_000_000,
+		ThinVolumeUSD:       200_000_000,
+		RecentMoveWeight:    2.5,
 		YieldTilt:           1.4,
 	}
 }
@@ -82,7 +88,7 @@ type Decision struct {
 // tilted by a confidential exponent and clipped to each venue's on-chain cap and liquidity.
 func Compute(sig MarketSignal, venues []Venue, p Params) Decision {
 	if len(venues) == 0 {
-		return Decision{TargetBps: nil, RefPriceMicroUSD: sig.LastMicroUSD, Rationale: "no venues"}
+		return Decision{TargetBps: nil, RefPriceMicroUSD: sig.PriceMicroUSD, Rationale: "no venues"}
 	}
 
 	deployedBps := riskBudget(sig, p)
@@ -114,7 +120,7 @@ func Compute(sig MarketSignal, venues []Venue, p Params) Decision {
 
 	return Decision{
 		TargetBps:        targets,
-		RefPriceMicroUSD: sig.LastMicroUSD,
+		RefPriceMicroUSD: sig.PriceMicroUSD,
 		Rationale:        describe(sig, deployedBps),
 	}
 }
@@ -126,11 +132,7 @@ func Compute(sig MarketSignal, venues []Venue, p Params) Decision {
 // the minimum deployment and the vault quietly puts capital to work on data it cannot interpret —
 // the one case where doing nothing is unambiguously correct.
 func usable(sig MarketSignal) bool {
-	return sig.VWAPMicroUSD > 0 &&
-		sig.LastMicroUSD > 0 &&
-		sig.HighMicroUSD >= sig.LowMicroUSD &&
-		sig.LowMicroUSD > 0 &&
-		sig.VolumeXRP > 0
+	return sig.PriceMicroUSD > 0 && sig.Volume24hUSD > 0
 }
 
 // riskBudget maps market conditions to a total deployment level in basis points.
@@ -156,26 +158,50 @@ func riskBudget(sig MarketSignal, p Params) float64 {
 
 	// A negative 24h move reduces deployment further; a positive one is not rewarded, because
 	// chasing strength is how yield vaults get caught holding the top.
-	if sig.ChangeBps < 0 {
-		budget -= float64(-sig.ChangeBps) * p.DrawdownSensitivity
+	if sig.Change24hBps < 0 {
+		budget -= float64(-sig.Change24hBps) * p.DrawdownSensitivity
+	}
+
+	// A sharp move in the last hour is a live event rather than history. It is weighted harder
+	// than the 24h figure precisely because it is the part the vault might still be walking into.
+	if sig.Change1hBps < 0 {
+		budget -= float64(-sig.Change1hBps) * p.DrawdownSensitivity * p.RecentMoveWeight
 	}
 
 	// Thin volume means exit liquidity is uncertain, so hold back proportionally.
-	if v := float64(sig.VolumeXRP); v < p.ThinVolumeXRP && p.ThinVolumeXRP > 0 {
-		budget *= math.Max(0.35, v/p.ThinVolumeXRP)
+	if v := float64(sig.Volume24hUSD); v < p.ThinVolumeUSD && p.ThinVolumeUSD > 0 {
+		budget *= math.Max(0.35, v/p.ThinVolumeUSD)
 	}
 
 	return clamp(budget, 0, p.MaxDeployedBps)
 }
 
-// realisedVolBps is the session high-low range as basis points of VWAP — a cheap, robust proxy
-// that needs no price history, which matters because the enclave sees one observation at a time.
+// realisedVolBps estimates volatility from the dispersion of returns across three horizons.
+//
+// Each return is scaled to a common 24h basis before comparing — a 1% move in an hour is far more
+// volatile than 1% over a day, and treating them as equal would systematically under-read exactly
+// the fast moves that matter. Scaling by sqrt(time) is the standard convention.
+//
+// The estimate is the largest of the three, not the average: volatility is a risk measure, and the
+// worst horizon is the one that should size the position.
 func realisedVolBps(sig MarketSignal) float64 {
-	if sig.VWAPMicroUSD == 0 || sig.HighMicroUSD < sig.LowMicroUSD {
+	if !usable(sig) {
 		return math.Inf(1) // unusable data reads as maximum risk, not as calm
 	}
-	spread := float64(sig.HighMicroUSD - sig.LowMicroUSD)
-	return spread / float64(sig.VWAPMicroUSD) * 10000
+
+	scaled := []float64{
+		math.Abs(float64(sig.Change1hBps)) * math.Sqrt(24),
+		math.Abs(float64(sig.Change6hBps)) * math.Sqrt(4),
+		math.Abs(float64(sig.Change24hBps)),
+	}
+
+	worst := 0.0
+	for _, v := range scaled {
+		if v > worst {
+			worst = v
+		}
+	}
+	return worst
 }
 
 // yieldWeights splits the risk budget across venues, favouring yield super-linearly.

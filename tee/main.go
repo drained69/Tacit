@@ -222,13 +222,11 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 // HashSignal mirrors `SignalTypes.hashSignal`.
 func HashSignal(s strategy.MarketSignal) []byte {
 	return ethabi.Keccak256(ethabi.Concat(
-		ethabi.EncodeUint256(new(big.Int).SetUint64(s.LastMicroUSD)),
-		ethabi.EncodeUint256(new(big.Int).SetUint64(s.VWAPMicroUSD)),
-		ethabi.EncodeUint256(new(big.Int).SetUint64(s.HighMicroUSD)),
-		ethabi.EncodeUint256(new(big.Int).SetUint64(s.LowMicroUSD)),
-		ethabi.EncodeUint256(new(big.Int).SetUint64(s.VolumeXRP)),
-		ethabi.EncodeInt256(s.ChangeBps),
-		ethabi.EncodeUint256(new(big.Int).SetUint64(s.ObsTimestamp)),
+		ethabi.EncodeUint256(new(big.Int).SetUint64(s.PriceMicroUSD)),
+		ethabi.EncodeUint256(new(big.Int).SetUint64(s.Volume24hUSD)),
+		ethabi.EncodeInt256(s.Change1hBps),
+		ethabi.EncodeInt256(s.Change6hBps),
+		ethabi.EncodeInt256(s.Change24hBps),
 	))
 }
 

@@ -32,37 +32,35 @@ contract EnclaveConformanceTest is Test {
     address constant EXPECTED_IDENTITY = 0xe05fcC23807536bEe418f142D19fa0d21BB0cfF7;
 
     bytes32 constant EXPECTED_SIGNAL_HASH =
-        0x992f847713d8504d9117a34c7d2490129b6e4475518f0a4f8df225eeb1781ec2;
+        0x00cc5432c89bc2b487d78a3c3c3f74be53d507f523111c7c9c69f863a5402101;
 
     bytes constant ENCLAVE_SIGNATURE =
-        hex"c068563144658971d7dc7d0bd4babf5f74bb888778b72c327d4cdb6c621cb35e"
-        hex"472b695273233d4499cda44d2dd64282efcf897990da191efabd4897de9d2a23"
+        hex"70400b5bfc25d395b7ee67ba192fae82d864bf6ff16a15753df8b4996aaecfd9"
+        hex"6df9fa70295fad5a7316ce97c22127c9fe0b6a0b22ea0d3f3c1ae7ca3383ee57"
         hex"1b";
 
     function _signal() internal pure returns (SignalTypes.MarketSignal memory) {
-        // A real Bitstamp XRP/USD observation. Used here as a fixed vector for the hashing
+        // A real Coinpaprika XRP observation. Used here as a fixed vector for the hashing
         // conformance check — this test is about Go/Solidity byte agreement, not attestation.
         return SignalTypes.MarketSignal({
-            lastMicroUsd: 1_038_910,
-            vwapMicroUsd: 1_040_130,
-            highMicroUsd: 1_048_060,
-            lowMicroUsd: 1_030_290,
-            volumeXrp: 8_957_657,
-            changeBps: -22, // negative: exercises two's-complement encoding on both sides
-            obsTimestamp: 1_786_281_701
+            priceMicroUsd: 1_037_218,
+            volume24hUsd: 594_409_405,
+            change1hBps: 8,
+            change6hBps: -54, // negative: exercises two's-complement encoding on both sides
+            change24hBps: -39
         });
     }
 
     function _plan() internal pure returns (SignalTypes.RebalancePlan memory p) {
         uint16[] memory targets = new uint16[](2);
-        targets[0] = 1978; // the enclave's own output, not a round number
-        targets[1] = 4770;
+        targets[0] = 2321; // the enclave's own output, not a round number
+        targets[1] = 5597;
 
         p = SignalTypes.RebalancePlan({
             nonce: 0,
             deadline: 1_786_400_000,
             signalHash: EXPECTED_SIGNAL_HASH,
-            refPriceMicroUsd: 1_038_910,
+            refPriceMicroUsd: 1_037_218,
             targetBps: targets
         });
     }
@@ -112,7 +110,7 @@ contract EnclaveConformanceTest is Test {
         vm.chainId(CHAIN_ID);
 
         SignalTypes.RebalancePlan memory tampered = _plan();
-        tampered.targetBps[1] = 4771; // one basis point
+        tampered.targetBps[1] = 5598; // one basis point
 
         bytes32 digest = MessageHashUtils.toEthSignedMessageHash(
             keccak256(abi.encode(block.chainid, VAULT, SignalTypes.hashPlan(tampered)))

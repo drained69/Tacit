@@ -80,6 +80,13 @@ contract TacitVault is ERC4626, Ownable2Step, Pausable, ReentrancyGuard {
     /// @notice FTSO feed id for XRP/USD. Verified live on Coston2.
     bytes21 public constant XRP_USD_FEED_ID = bytes21(0x015852502f55534400000000000000000000000000);
 
+    /// @notice Flare voting-epoch schedule, used to date an attestation from its round number.
+    /// @dev Read from `FlareSystemsManager` on Coston2 and cross-checked against
+    ///      `getCurrentVotingEpochId()`. Constants rather than a live lookup because they are part
+    ///      of the protocol schedule, and a rebalance should not fail because a registry call did.
+    uint64 public constant FIRST_VOTING_ROUND_START_TS = 1_658_430_000;
+    uint64 public constant VOTING_EPOCH_SECONDS = 90;
+
     // ---------------------------------------------------------------------
     // Storage
     // ---------------------------------------------------------------------
@@ -427,9 +434,14 @@ contract TacitVault is ERC4626, Ownable2Step, Pausable, ReentrancyGuard {
         bytes32 got = signal.hashSignal();
         if (got != plan.signalHash) revert SignalMismatch(got, plan.signalHash);
 
-        if (signal.obsTimestamp + maxSignalAge < block.timestamp) {
-            revert SignalStale(signal.obsTimestamp, maxSignalAge);
-        }
+        // Freshness is taken from the voting round the attestation was finalised in, not from a
+        // timestamp inside the fetched document. A timestamp in the payload is a claim by the
+        // source; the round is the chain's own record of when ~100 providers agreed on it, and a
+        // compromised endpoint cannot backdate it.
+        uint256 observedAt =
+            uint256(FIRST_VOTING_ROUND_START_TS) + uint256(proof.data.votingRound) * VOTING_EPOCH_SECONDS;
+
+        if (observedAt + maxSignalAge < block.timestamp) revert SignalStale(observedAt, maxSignalAge);
     }
 
     /// @dev This is where FTSO earns its place: it bounds enclave discretion rather than
