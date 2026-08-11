@@ -10,9 +10,9 @@ const PRIMITIVES = [
     name: "FDC Web2Json",
     color: c.s1,
     gives:
-      "Turns a public market-data endpoint into an on-chain fact. ~100 providers fetch the same URL, apply the same JQ transform, and vote on the result.",
+      "Turns a public market-data endpoint into an on-chain fact. ~100 providers fetch the same URL, cut it down to the same few numbers, and vote on the answer.",
     without:
-      "The enclave's inputs would be a claim from whoever ran the relayer. The vault could not tell a real signal from a fabricated one.",
+      "The enclave's inputs would be whatever the relayer said they were. The vault could not tell a real signal from an invented one.",
   },
   {
     name: "FTSO",
@@ -20,7 +20,7 @@ const PRIMITIVES = [
     gives:
       "A decentralised XRP/USD reference from ~100 providers, read on-chain during the rebalance itself.",
     without:
-      "refPriceMicroUsd in the plan would be an unfalsifiable number. The price band is what makes the enclave's output auditable rather than trusted.",
+      "The price the plan trades against would be a number nobody could check. The price band is what makes the enclave's output verifiable rather than trusted.",
   },
   {
     name: "FAssets · FXRP",
@@ -34,7 +34,7 @@ const PRIMITIVES = [
     name: "Confidential Compute",
     color: c.accent,
     gives:
-      "A TEE that derives its own signing identity inside the enclave. The strategy runs where nobody — including whoever deployed it — can read it.",
+      "A sealed machine that creates its own signing key inside the seal. The strategy runs where nobody — including whoever deployed it — can read it.",
     without:
       "The strategy is public, and a public strategy is front-runnable. This is the primitive the entire premise rests on.",
   },
@@ -75,7 +75,7 @@ export const ScenePrimitives: React.FC = () => (
               display: "grid",
               gridTemplateColumns: "330px 1fr 1fr",
               gap: 24,
-              padding: "24px 26px",
+              padding: "20px 26px",
               borderBottom: `1px solid ${c.line}`,
               background: i % 2 ? "transparent" : c.panel,
             }}
@@ -102,63 +102,93 @@ export const ScenePrimitives: React.FC = () => (
 
     <div style={{ flex: 1 }} />
 
+    {/* "On one chain" is the claim, and it is also the constraint the cross-chain
+     *  scenes exist to answer — all four primitives are Flare's, so the vault cannot
+     *  move to the depositor. The last sentence hands off to that answer rather than
+     *  leaving the viewer to assume Coston2-only means Coston2-users-only. */}
     <Reveal delay={220}>
       <div style={{ fontSize: 26, color: c.muted, lineHeight: 1.5 }}>
-        Attested off-chain data, a decentralised price feed, a bridged real-world asset, and a TEE —{" "}
-        <span style={{ color: c.text }}>on one chain, in one transaction path</span>. That
-        combination is the reason Tacit is a Flare project and not a generic EVM one.
+        Four primitives, <span style={{ color: c.text }}>one chain, one transaction path</span> —
+        that is what makes Tacit a Flare project and not a generic EVM one, and it is also the
+        reason the vault cannot move to the depositor.{" "}
+        <span style={{ color: c.text }}>So the deposit comes to it.</span>
       </div>
     </Reveal>
   </Stage>
 );
 
-/* ── 13. Real vs simulated ────────────────────────────────────────────── */
+/* ── 15. Real vs simulated ────────────────────────────────────────────── */
 
-const HONESTY = [
-  { part: "Vault contracts and share accounting", real: true, note: "Deployed and verified on Coston2" },
-  { part: "All five guardrails", real: true, note: "Enforced in the rebalance path, 60 tests" },
-  { part: "FXRP", real: true, note: "The real FAssets token — 6 decimals, not a mock" },
-  { part: "FTSO XRP/USD price feed", real: true, note: "Read live from ~100 providers" },
-  { part: "FDC Web2Json attestation", real: true, note: "Real attestation round, real Merkle proof" },
-  { part: "Firelight stXRP venue", real: true, note: "Live third-party vault, ~100k FXRP TVL" },
-  { part: "Enclave code path, identity, signing", real: true, note: "The same binary that runs under FCC" },
+/** Three states, not two. `real` means it runs against live infrastructure;
+ *  `simulated` means a stand-in sits in the path; `pending` means the code exists
+ *  and compiles but nothing is deployed and nothing is tested. That last one is
+ *  not a simulation — there is no stand-in, there is simply nothing a user can
+ *  reach yet — and folding it into "simulated" would overstate it in the one place
+ *  in the deck that exists to not overstate things.
+ *
+ *  The title below counts the non-green rows, so adding a row means re-reading the
+ *  title. The hardware-attestation row stays LAST: the closing panel answers it
+ *  directly, and a row between them breaks that pairing. */
+const HONESTY: { part: string; state: "real" | "simulated" | "pending"; note: string }[] = [
+  { part: "Vault contracts and share accounting", state: "real", note: "Deployed and verified on Coston2" },
+  { part: "All five guardrails", state: "real", note: "Enforced in the rebalance path, 61 tests" },
+  { part: "FXRP", state: "real", note: "The real FAssets token — 6 decimals, not a mock" },
+  { part: "FTSO XRP/USD price feed", state: "real", note: "Read live from ~100 providers" },
+  { part: "FDC Web2Json attestation", state: "real", note: "Real attestation round, proof checked on-chain" },
+  { part: "Firelight stXRP venue", state: "real", note: "Live third-party vault, ~100k FXRP TVL" },
+  { part: "Enclave code path, identity, signing", state: "real", note: "The same binary that runs under FCC" },
+  {
+    part: "Cross-chain deposits · LayerZero OVault",
+    state: "pending",
+    note: "Written and compiling — no deployment, no tests yet",
+  },
   {
     part: "Hardware attestation quote verification",
-    real: false,
+    state: "simulated",
     note: "SIMULATED_TEE=true — Coston2 has no Confidential Space hardware",
   },
 ];
+
+const STATE = {
+  real: { label: "● REAL", color: c.good },
+  simulated: { label: "◐ SIMULATED", color: c.warn },
+  pending: { label: "◇ NOT DEPLOYED", color: c.dim },
+} as const;
 
 export const SceneRealOrSim: React.FC = () => (
   <Stage>
     <Heading
       eyebrow="What is real and what is not"
-      title="One thing is simulated, and it is named here"
+      title="One thing is simulated, one is not deployed, both named"
       sub="A demo that blurs this line is not a demo, it is a pitch. So here is the whole list."
     />
 
     <div>
-      {HONESTY.map((h, i) => (
-        <Reveal key={h.part} delay={38 + i * 17}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 190px 1fr",
-              gap: 24,
-              alignItems: "center",
-              padding: "17px 26px",
-              borderBottom: `1px solid ${c.line}`,
-              background: h.real ? (i % 2 ? "transparent" : c.panel) : `${c.warn}12`,
-            }}
-          >
-            <div style={{ fontSize: 24, color: c.text }}>{h.part}</div>
-            <div>
-              <Pill color={h.real ? c.good : c.warn}>{h.real ? "● REAL" : "◐ SIMULATED"}</Pill>
+      {HONESTY.map((h, i) => {
+        const s = STATE[h.state];
+        return (
+          <Reveal key={h.part} delay={38 + i * 17}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 190px 1fr",
+                gap: 24,
+                alignItems: "center",
+                padding: "15px 26px",
+                borderBottom: `1px solid ${c.line}`,
+                background:
+                  h.state === "real" ? (i % 2 ? "transparent" : c.panel) : `${s.color}12`,
+              }}
+            >
+              <div style={{ fontSize: 24, color: c.text }}>{h.part}</div>
+              <div>
+                <Pill color={s.color}>{s.label}</Pill>
+              </div>
+              <div style={{ fontFamily: code, fontSize: 19, color: c.muted }}>{h.note}</div>
             </div>
-            <div style={{ fontFamily: code, fontSize: 19, color: c.muted }}>{h.note}</div>
-          </div>
-        </Reveal>
-      ))}
+          </Reveal>
+        );
+      })}
     </div>
 
     <div style={{ flex: 1 }} />
@@ -179,19 +209,25 @@ export const SceneRealOrSim: React.FC = () => (
   </Stage>
 );
 
-/* ── 14. Live on Coston2 ──────────────────────────────────────────────── */
+/* ── 16. Live on Coston2 ──────────────────────────────────────────────── */
 
+/** Verbatim from `ui/deployments.json`, which is what the live interface reads.
+ *  The scene claims every address is live, so these must be regenerated from that
+ *  file — never retyped — whenever the contracts are redeployed. */
 const ADDRS = [
-  { label: "TacitVault", addr: "0xFA02DA641C0DC58625eB3fC77cE772d7b1DdA9A8", color: c.accent },
-  { label: "Venue A · 8% APR", addr: "0xCC2f2b4003cBa792f64c0769A2c45b2E77863eEB", color: c.s1 },
-  { label: "Venue B · 15% APR", addr: "0xCc36AC63379FE74E6C27414c6b0475c47606D72B", color: c.s2 },
-  { label: "Firelight adapter", addr: "0x4a901841Bccd01C990d8d7A0f25E4e4FCf05a124", color: c.s3 },
+  { label: "TacitVault", addr: "0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed", color: c.accent },
+  { label: "Venue A · 8% APR", addr: "0xeAa13D09e5d501B108c68c2c158eA23e8f64f0e2", color: c.s1 },
+  { label: "Venue B · 15% APR", addr: "0x087D3C7d91af876078863b46ed835B5D0142D66a", color: c.s2 },
+  { label: "Firelight adapter", addr: "0x0F7fF8Db9EC2bdA72A1B4DA34e0B484AF3D1c351", color: c.s3 },
   { label: "Enclave identity", addr: "0x89E6C7AD562cf6e664aDBE425E9e323F9A8a3bC5", color: c.good },
 ];
 
+/** Wording matches the venue pills in scene 5 and the Firelight slide in scene 11.
+ *  "Instant exit" / "queued exit" replaced sync/async everywhere the viewer can
+ *  see, so these two rows must not reintroduce the old vocabulary. */
 const GUARDS = [
-  { k: "Synchronous venue cap", v: "60%" },
-  { k: "Firelight (async) cap", v: "30%" },
+  { k: "Instant-exit venue cap", v: "60%" },
+  { k: "Firelight (queued) cap", v: "30%" },
   { k: "Max turnover per rebalance", v: "30%" },
   { k: "Minimum rebalance interval", v: "300s" },
   { k: "FTSO price band", v: "±5%" },
@@ -230,8 +266,8 @@ export const SceneLive: React.FC = () => (
 
         <Reveal delay={158}>
           <div style={{ display: "flex", gap: 12, marginTop: 30, flexWrap: "wrap" }}>
-            <Pill color={c.good}>forge test -vv → 60 PASSED</Pill>
-            <Pill color={c.good}>go test ./... → 8 PASSED</Pill>
+            <Pill color={c.good}>forge test → 61 PASSED</Pill>
+            <Pill color={c.good}>go test ./... → 10 PASSED</Pill>
             <Pill color={c.dim}>INCLUDES FORK TESTS VS LIVE FIRELIGHT</Pill>
           </div>
         </Reveal>
@@ -282,7 +318,7 @@ export const SceneLive: React.FC = () => (
   </Stage>
 );
 
-/* ── 15. Closing ──────────────────────────────────────────────────────── */
+/* ── 17. Closing ──────────────────────────────────────────────────────── */
 
 export const SceneClosing: React.FC = () => {
   const frame = useCurrentFrame();
@@ -346,49 +382,48 @@ export const SceneClosing: React.FC = () => {
             <span style={{ color: c.accent }}>never fund safety.</span>
           </div>
         </Reveal>
-      </div>
 
-      {/* Hand-off to the UI walkthrough that is appended after this card. Last
-       *  thing revealed, and it holds for ~4s so it is read before the cut. */}
-      <Reveal delay={182}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 22,
-            background: c.panel,
-            border: `1px solid ${c.line}`,
-            borderLeft: `3px solid ${c.accent}`,
-            borderRadius: 10,
-            padding: "22px 28px",
-            marginBottom: 30,
-          }}
-        >
+        {/* The same boundary as one sentence per party, revealed left to right —
+         *  which is also the order the pipeline actually runs in. */}
+        <div style={{ display: "flex", alignItems: "stretch", marginTop: 32 }}>
+          {[
+            "The owner sets the rules.",
+            "The AI makes the decision.",
+            'Anyone can press "execute."',
+            "The smart contract is the referee.",
+          ].map((line, i) => (
+            <Reveal
+              key={line}
+              delay={104 + i * 10}
+              style={{
+                flex: 1,
+                paddingLeft: i === 0 ? 0 : 26,
+                borderLeft: i === 0 ? undefined : `1px solid ${c.line}`,
+              }}
+            >
+              <div style={{ fontSize: 24, fontWeight: 500, lineHeight: 1.4, paddingRight: 22 }}>
+                {line}
+              </div>
+            </Reveal>
+          ))}
+        </div>
+
+        <Reveal delay={152}>
           <div
             style={{
-              fontFamily: code,
-              fontSize: 18,
-              letterSpacing: "0.18em",
+              fontSize: 36,
+              fontWeight: 600,
+              marginTop: 34,
+              letterSpacing: "-0.015em",
               color: c.accent,
-              flexShrink: 0,
             }}
           >
-            UP NEXT
+            Thanks for watching.
           </div>
-          <div style={{ width: 1, height: 30, background: c.line, flexShrink: 0 }} />
-          <div style={{ fontSize: 27, color: c.text, lineHeight: 1.4 }}>
-            A screen recording of the live Tacit interface follows —{" "}
-            <span style={{ color: c.muted }}>
-              depositing FXRP, watching the enclave publish a plan, and the vault settle it on
-              Coston2.
-            </span>
-          </div>
-          <div style={{ flex: 1 }} />
-          <div style={{ fontSize: 34, color: c.accent, lineHeight: 1, flexShrink: 0 }}>▶</div>
-        </div>
-      </Reveal>
+        </Reveal>
+      </div>
 
-      <Reveal delay={140}>
+      <Reveal delay={166}>
         <div
           style={{
             display: "flex",
@@ -403,6 +438,53 @@ export const SceneClosing: React.FC = () => {
           <div style={{ flex: 1 }} />
           <Pill color={c.good}>● LIVE ON COSTON2</Pill>
           <Pill color={c.dim}>FLARE SUMMER SIGNAL 2026</Pill>
+        </div>
+      </Reveal>
+
+      {/* Hand-off to the screen recording spliced on after this card. It is both the
+       *  last thing revealed (delay 200, after the footer at 166) and the bottom-most
+       *  element, so the viewer's eye ends where the cut happens. Fully opaque at
+       *  frame 218 and the scene runs to 375, so it holds ~5s before the fade.
+       *
+       *  Wording describes what the interface IS, not the order of actions performed
+       *  in it — the recording is made separately and must not be able to contradict
+       *  this card. */}
+      <Reveal delay={200}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 22,
+            background: c.panel,
+            border: `1px solid ${c.line}`,
+            borderLeft: `3px solid ${c.accent}`,
+            borderRadius: 10,
+            padding: "22px 28px",
+            marginTop: 30,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: code,
+              fontSize: 18,
+              letterSpacing: "0.18em",
+              color: c.accent,
+              flexShrink: 0,
+            }}
+          >
+            UP NEXT
+          </div>
+          <div style={{ width: 1, height: 30, background: c.line, flexShrink: 0 }} />
+          <div style={{ fontSize: 26, color: c.text, lineHeight: 1.4 }}>
+            A screen recording of the live interface follows —{" "}
+            <span style={{ color: c.muted }}>
+              deposits, withdrawals, the current allocation, the guardrails above, the autopilot's
+              status and the last signal Flare attested — every number read straight from the vault
+              on Coston2.
+            </span>
+          </div>
+          <div style={{ flex: 1 }} />
+          <div style={{ fontSize: 34, color: c.accent, lineHeight: 1, flexShrink: 0 }}>▶</div>
         </div>
       </Reveal>
     </Stage>

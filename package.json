@@ -16,6 +16,9 @@
   "type": "commonjs",
   "dependencies": {
     "@flarenetwork/flare-periphery-contracts": "^0.1.52",
+    "@layerzerolabs/oapp-evm": "^0.4.1",
+    "@layerzerolabs/oft-evm": "^4.0.1",
+    "@layerzerolabs/ovault-evm": "^1.0.1",
     "@openzeppelin/contracts": "^5.6.1"
   }
 }

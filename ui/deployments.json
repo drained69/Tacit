@@ -10,5 +10,6 @@
       "target": "0xC90D6847747b85d1fa2E07859869fb9fB72c0361", "note": "live third-party FXRP vault; async withdrawals" }
   ],
   "teeIdentity": "0x89E6C7AD562cf6e664aDBE425E9e323F9A8a3bC5",
+  "autopilot": "",
   "explorer": "https://coston2-explorer.flare.network"
 }

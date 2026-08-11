@@ -10,6 +10,7 @@ import {
 } from "./scenes/Intro";
 import { SceneArchitecture, SceneInvariants, SceneLifecycle } from "./scenes/System";
 import { SceneAttack, SceneFirelight, SceneFuzz, SceneResidual } from "./scenes/Proof";
+import { SceneCrossChain, SceneCrossChainSafety } from "./scenes/CrossChain";
 import { SceneClosing, SceneLive, ScenePrimitives, SceneRealOrSim } from "./scenes/Real";
 
 /** Playback order. Each entry pairs a scene component with its frame budget in
@@ -28,6 +29,12 @@ const TIMELINE: { key: keyof typeof SCENES; Scene: React.FC }[] = [
   { key: "fuzz", Scene: SceneFuzz },
   { key: "firelight", Scene: SceneFirelight },
   { key: "primitives", Scene: ScenePrimitives },
+  // Cross-chain sits after the trust boundary is established, and the pair runs
+  // journey-then-hardening: the first scene names the shape of the risk, the second
+  // answers it. The honesty table follows immediately, so the "not yet deployed"
+  // row lands within seconds of the claim it qualifies.
+  { key: "crossChain", Scene: SceneCrossChain },
+  { key: "crossChainSafety", Scene: SceneCrossChainSafety },
   { key: "realOrSim", Scene: SceneRealOrSim },
   { key: "live", Scene: SceneLive },
   { key: "closing", Scene: SceneClosing },

@@ -1,0 +1,48 @@
+# Pinned from the working .venv. Only two of these are imported directly -- web3 and eth-account --
+# but the whole tree is pinned because the autopilot is a long-running unattended service: a
+# transitive release that changes ABI encoding or signing behaviour would surface as a vault revert
+# minutes into a cycle, after an attestation fee has already been spent.
+#
+# Regenerate with:  ./.venv/bin/pip freeze > offchain/requirements.txt
+
+# ── direct ───────────────────────────────────────────────────
+web3==7.16.0
+eth-account==0.13.7
+
+# ── transitive ───────────────────────────────────────────────
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiosignal==1.4.0
+annotated-types==0.8.0
+attrs==26.1.0
+bitarray==3.10.1
+certifi==2026.7.22
+charset-normalizer==3.4.9
+ckzg==2.1.8
+cytoolz==1.1.0
+eth-abi==5.2.0
+eth-hash==0.8.0
+eth-keyfile==0.8.1
+eth-keys==0.7.0
+eth-rlp==2.2.0
+eth-typing==6.0.0
+eth-utils==6.0.0
+frozenlist==1.8.0
+hexbytes==1.3.1
+idna==3.18
+multidict==6.7.1
+parsimonious==0.10.0
+propcache==0.5.2
+pycryptodome==3.23.0
+pydantic==2.13.4
+pydantic-core==2.46.4
+pyunormalize==17.0.0
+regex==2026.7.19
+requests==2.34.2
+rlp==4.1.0
+toolz==1.1.0
+typing-extensions==4.16.0
+typing-inspection==0.4.2
+urllib3==2.7.0
+websockets==15.0.1
+yarl==1.24.5

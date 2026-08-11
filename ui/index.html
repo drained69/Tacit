@@ -4,167 +4,400 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Tacit · Confidential FXRP Treasury</title>
+<meta name="description" content="Automated FXRP allocation with on-chain guardrails. Private strategy, public inputs, enforced by the vault." />
 <link rel="stylesheet" href="styles.css" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>" />
 </head>
 <body>
 
+<a class="skip-link" href="#vault">Skip to vault</a>
+
+<!-- Testnet strip. Sits above the header so it is unmissable on first paint, but is a single
+     quiet line rather than a coloured slab, because it is context, not an error. -->
+<div class="testnet-strip" role="note">
+  <span class="dot dot-warn" aria-hidden="true"></span>
+  You're using testnet FXRP. This deployment has no monetary value.
+</div>
+
 <header class="topbar">
-  <div class="brand">
-    <span class="mark">◆</span>
-    <div>
-      <h1>Tacit</h1>
-      <p class="tagline">Understood without being stated.</p>
+  <div class="topbar-inner">
+    <a class="brand" href="#vault">
+      <span class="mark" aria-hidden="true">◆</span>
+      <span class="brand-text">
+        <span class="brand-name">Tacit</span>
+        <span class="tagline">Understood without being stated.</span>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="Sections">
+      <a href="#vault">Vault</a>
+      <a href="#strategy">Strategy</a>
+      <a href="#activity">Activity</a>
+      <!-- In-page, like the three above it. There is no published docs site to link out to, and a
+           nav item pointing at a URL that may not resolve is worse than one that lands on the
+           page's own explanation of the design. -->
+      <a href="#docs">Documentation</a>
+    </nav>
+
+    <div class="topbar-right">
+      <span class="network" id="network-indicator">
+        <span class="dot dot-good" aria-hidden="true"></span>
+        <span class="network-text">
+          <span class="network-name">Coston2</span>
+          <span class="network-env">Testnet</span>
+        </span>
+      </span>
+      <span id="network-pill" class="pill pill-muted">not connected</span>
+      <button id="connect" class="btn btn-primary">Connect wallet</button>
     </div>
-  </div>
-  <div class="topbar-right">
-    <span id="network-pill" class="pill pill-muted">not connected</span>
-    <button id="connect" class="btn btn-primary">Connect wallet</button>
   </div>
 </header>
 
 <main>
-  <!-- Leads with what is verifiable, then states the one simulated component precisely.
-       Both halves matter: overclaiming would be dishonest, but burying the real integrations
-       behind a disclaimer misrepresents the system in the other direction. -->
-  <div id="sim-banner" class="banner">
-    <span class="banner-live">● Live on Coston2 ·</span>
-    Real FXRP, real FTSO price feeds, real FDC attestation across ~100 independent data providers.
-    <strong>Hardware attestation quotes are simulated on Flare's testnet</strong> — which is exactly
-    why this vault enforces five guardrails on-chain instead of trusting the enclave.
-  </div>
 
-  <section class="grid-top">
-    <!-- ── Vault ───────────────────────────────────────────────── -->
-    <div class="card">
-      <h2>Vault</h2>
-      <div class="stats">
-        <div class="stat">
-          <span class="label">Total value locked</span>
-          <span class="value" id="tvl">—</span>
-        </div>
-        <div class="stat">
-          <span class="label">Your position</span>
-          <span class="value" id="your-assets">—</span>
-        </div>
-        <div class="stat">
-          <span class="label">Share price</span>
-          <span class="value" id="share-price">—</span>
-        </div>
-        <div class="stat">
-          <span class="label">Your shares</span>
-          <span class="value mono" id="your-shares">—</span>
-        </div>
+  <!-- ── Hero: vault overview ─────────────────────────────────── -->
+  <section class="hero" id="vault" aria-labelledby="hero-title">
+    <div class="hero-head">
+      <div>
+        <h1 id="hero-title">Tacit FXRP Vault</h1>
+        <p class="hero-sub">Automated FXRP allocation with on-chain guardrails.</p>
       </div>
-
-      <div class="actions">
-        <div class="field">
-          <label for="amount">Amount (FXRP)</label>
-          <div class="input-row">
-            <input id="amount" type="text" inputmode="decimal" placeholder="0.000000" />
-            <button id="max" class="btn btn-ghost btn-sm">max</button>
-          </div>
-        </div>
-        <div class="button-row">
-          <button id="deposit" class="btn btn-primary" disabled>Deposit</button>
-          <button id="withdraw" class="btn btn-secondary" disabled>Withdraw</button>
-        </div>
-        <p id="tx-status" class="status"></p>
+      <!-- Not hardcoded "Strategy active": the vault can sit with no enclave registered, or with one
+           registered that has never rebalanced, and both of those states would be contradicted by a
+           green light. app.js sets the label and the dot from `teeIdentity()` and `lastRebalanceAt`,
+           which refresh() already reads. -->
+      <div class="hero-status">
+        <span class="dot dot-idle" id="hero-dot" aria-hidden="true"></span>
+        <span class="hero-status-text">
+          <strong id="hero-status-label">Checking strategy…</strong>
+          <span class="hero-status-sub">Last rebalance <span id="hero-last-rebalance">—</span></span>
+        </span>
       </div>
     </div>
 
-    <!-- ── Guardrails ──────────────────────────────────────────── -->
-    <div class="card">
-      <h2>Guardrails <span class="subtle">enforced on-chain</span></h2>
-      <p class="card-intro">
-        Every rebalance is signed by the enclave and still has to pass all five.
-      </p>
+    <div class="metrics">
+      <div class="metric metric-lead">
+        <span class="label" id="lab-tvl">Total value locked</span>
+        <span class="value value-xl" id="tvl" aria-labelledby="lab-tvl">—</span>
+        <span class="metric-note">Assets held by the vault, across all venues</span>
+      </div>
+      <div class="metric metric-lead">
+        <span class="label" id="lab-pos">Your position</span>
+        <span class="value value-xl" id="your-assets" aria-labelledby="lab-pos">—</span>
+        <span class="metric-note">Current redemption value of your shares</span>
+      </div>
+      <div class="metric">
+        <span class="label" id="lab-price">Share price</span>
+        <span class="value" id="share-price" aria-labelledby="lab-price">—</span>
+        <span class="metric-note">FXRP per share</span>
+      </div>
+      <div class="metric">
+        <span class="label" id="lab-shares">Your shares</span>
+        <span class="value mono" id="your-shares" aria-labelledby="lab-shares">—</span>
+        <span class="metric-note">Vault share token balance</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="columns">
+
+    <!-- ── Deposit / Withdraw ─────────────────────────────────── -->
+    <section class="card panel-action" aria-labelledby="action-title">
+      <h2 id="action-title" class="card-title">Deposit &amp; withdraw</h2>
+
+      <div class="tabs" role="tablist" aria-label="Deposit or withdraw">
+        <button id="tab-deposit" class="tab is-active" role="tab"
+                aria-selected="true" aria-controls="action-panel" data-mode="deposit">Deposit</button>
+        <button id="tab-withdraw" class="tab" role="tab"
+                aria-selected="false" aria-controls="action-panel" data-mode="withdraw">Withdraw</button>
+      </div>
+
+      <div id="action-panel" role="tabpanel" aria-labelledby="tab-deposit" class="action-panel">
+        <div class="field">
+          <div class="field-head">
+            <label for="amount">Amount</label>
+            <span class="field-aux">
+              <span id="available-label">Available</span>
+              <span class="mono" id="available-amount">—</span>
+            </span>
+          </div>
+          <div class="input-row">
+            <input id="amount" type="text" inputmode="decimal" autocomplete="off"
+                   spellcheck="false" placeholder="0.000000"
+                   aria-describedby="receive-line" />
+            <span class="input-unit" aria-hidden="true">FXRP</span>
+            <button id="max" class="btn btn-ghost btn-sm" type="button">Max</button>
+          </div>
+        </div>
+
+        <div class="receive" id="receive-line">
+          <div class="receive-row">
+            <span class="receive-label" id="receive-label">You receive</span>
+            <span class="receive-value mono" id="receive-value">—</span>
+          </div>
+          <div class="receive-row receive-row-sub">
+            <span>Share price</span>
+            <span class="mono" id="receive-price">—</span>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="deposit" class="btn btn-primary btn-block" disabled>Deposit</button>
+          <button id="withdraw" class="btn btn-secondary btn-block is-hidden" disabled>Withdraw</button>
+        </div>
+
+        <p id="tx-status" class="status" role="status" aria-live="polite"></p>
+
+        <p class="action-note" id="withdraw-note" hidden>
+          Withdrawals are served from idle capital first, then by unwinding venues. A venue marked
+          <em>delayed exit</em> settles through a queue, so Max can quote less than your full
+          position — the vault will not promise funds it cannot pay today.
+        </p>
+      </div>
+
+      <!-- Funding. Someone arriving with an empty wallet cannot try the product at all, and the
+           failure they hit ("insufficient funds") names neither which of the two tokens is missing
+           nor where to get it. Both are needed and they are not interchangeable: C2FLR pays gas,
+           FXRP is what the vault takes. FXRP has no public mint on Coston2 — the faucet is the only
+           route — so this links out rather than pretending to be a mint button. -->
+      <details class="funding" id="funding">
+        <summary class="funding-summary">
+          <span class="funding-summary-label">Testnet balances</span>
+          <span id="funding-verdict" class="pill pill-muted">connect to check</span>
+          <span class="chev" aria-hidden="true"></span>
+        </summary>
+        <div class="funding-body">
+          <div class="funding-balances">
+            <div class="metric">
+              <span class="label">C2FLR <span class="subtle">gas</span></span>
+              <span class="value-sm mono" id="bal-gas">—</span>
+            </div>
+            <div class="metric">
+              <span class="label">FXRP <span class="subtle">deposits</span></span>
+              <span class="value-sm mono" id="bal-fxrp">—</span>
+            </div>
+          </div>
+          <div class="funding-actions">
+            <a id="faucet-link" class="btn btn-secondary btn-sm"
+               href="https://faucet.flare.network/coston2" target="_blank" rel="noopener noreferrer">
+              Open faucet <span class="ext" aria-hidden="true">↗</span>
+            </a>
+            <button id="copy-address" class="btn btn-ghost btn-sm" disabled>Copy address</button>
+            <button id="watch-fxrp" class="btn btn-ghost btn-sm">Add FXRP to wallet</button>
+          </div>
+          <p class="funding-note" id="funding-note">
+            The faucet gives 100 C2FLR and 10 FXRP per address per 24h. Request both.
+          </p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ── Guardrails ─────────────────────────────────────────── -->
+    <section class="card" id="strategy" aria-labelledby="guardrails-title">
+      <h2 id="guardrails-title" class="card-title">On-chain guardrails</h2>
+      <p class="card-intro">Every strategy decision is checked by the vault before execution.</p>
+
       <ul class="guardrails" id="guardrails">
         <li data-key="conservation">
-          <span class="tick">✓</span>
-          <span class="g-name">Conservation</span>
-          <span class="g-value" id="g-conservation">—</span>
-          <span class="g-note">total assets may not fall</span>
+          <details>
+            <summary>
+              <span class="tick" aria-hidden="true">✓</span>
+              <span class="g-name">Conservation</span>
+              <span class="g-value" id="g-conservation">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </summary>
+            <p class="g-note">
+              Total assets may not fall across a rebalance. Capital can move between venues; it
+              cannot leave. A plan that would shrink the vault is rejected outright.
+            </p>
+          </details>
         </li>
         <li data-key="cap">
-          <span class="tick">✓</span>
-          <span class="g-name">Venue cap</span>
-          <span class="g-value" id="g-cap">—</span>
-          <span class="g-note">max share in any one venue</span>
+          <details>
+            <summary>
+              <span class="tick" aria-hidden="true">✓</span>
+              <span class="g-name">Venue cap</span>
+              <span class="g-value" id="g-cap">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </summary>
+            <p class="g-note">
+              The largest share any single venue may hold. Shown as the highest cap across active
+              venues — no plan can concentrate the book past it, however confident the strategy is.
+            </p>
+          </details>
         </li>
         <li data-key="turnover">
-          <span class="tick">✓</span>
-          <span class="g-name">Turnover</span>
-          <span class="g-value" id="g-turnover">—</span>
-          <span class="g-note">max rotation per rebalance</span>
+          <details>
+            <summary>
+              <span class="tick" aria-hidden="true">✓</span>
+              <span class="g-name">Turnover</span>
+              <span class="g-value" id="g-turnover">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </summary>
+            <p class="g-note">
+              The maximum fraction of the book that may be rotated in one rebalance. This bounds
+              churn, so an agent cannot grind the vault down through repeated large reshuffles.
+            </p>
+          </details>
         </li>
         <li data-key="band">
-          <span class="tick">✓</span>
-          <span class="g-name">FTSO band</span>
-          <span class="g-value" id="g-band">—</span>
-          <span class="g-note">reference price vs XRP/USD feed</span>
+          <details>
+            <summary>
+              <span class="tick" aria-hidden="true">✓</span>
+              <span class="g-name">FTSO band</span>
+              <span class="g-value" id="g-band">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </summary>
+            <p class="g-note">
+              The reference price in the plan must sit within this band of Flare's FTSO XRP/USD
+              feed. A price the market never printed cannot be used to justify an allocation.
+            </p>
+          </details>
         </li>
         <li data-key="age">
-          <span class="tick">✓</span>
-          <span class="g-name">Signal age</span>
-          <span class="g-value" id="g-age">—</span>
-          <span class="g-note">attested observation must be fresh</span>
+          <details>
+            <summary>
+              <span class="tick" aria-hidden="true">✓</span>
+              <span class="g-name">Signal freshness</span>
+              <span class="g-value" id="g-age">—</span>
+              <span class="chev" aria-hidden="true"></span>
+            </summary>
+            <p class="g-note">
+              The attested market observation behind a plan must be newer than this. Stale data
+              cannot be replayed to re-run a decision the market has already moved past.
+            </p>
+          </details>
         </li>
       </ul>
+
       <div class="enclave-row">
         <span class="label">Enclave identity</span>
         <span class="mono small" id="tee-identity">—</span>
       </div>
+      <p class="enclave-caveat">
+        Hardware attestation quotes are <strong>simulated</strong> on Flare's testnet — which is
+        exactly why these five checks are enforced on-chain instead of trusting the enclave.
+      </p>
+    </section>
+  </div>
+
+  <!-- ── Allocation ───────────────────────────────────────────── -->
+  <section class="card" aria-labelledby="allocation-title">
+    <div class="card-head">
+      <div>
+        <h2 id="allocation-title" class="card-title">Current allocation</h2>
+        <p class="card-intro">Where the vault's capital is currently deployed.</p>
+      </div>
+      <span class="pill pill-muted" id="alloc-total">—</span>
     </div>
+
+    <div class="alloc-layout">
+      <div class="alloc-chart" id="alloc-chart" aria-hidden="true"></div>
+      <div id="allocation" class="allocation">
+        <p class="empty">Loading allocation from Coston2…</p>
+      </div>
+    </div>
+
+    <p class="alloc-foot">
+      Idle capital is held by the vault itself. It is the first source drawn on for withdrawals,
+      and it is bounded by the same conservation rule as everything else.
+    </p>
   </section>
 
-  <!-- ── Allocation ────────────────────────────────────────────── -->
-  <section class="card">
-    <h2>Allocation <span class="subtle">decided in the enclave, bounded on-chain</span></h2>
-    <div id="allocation" class="allocation">
-      <p class="empty">Loading allocation from Coston2…</p>
-    </div>
-    <div class="rebalance-row">
+  <!-- ── Activity ─────────────────────────────────────────────── -->
+  <section class="card" id="activity" aria-labelledby="activity-title">
+    <div class="card-head">
       <div>
+        <h2 id="activity-title" class="card-title">Rebalancing</h2>
+        <p class="card-intro">
+          Anyone can request a rebalance. The enclave proposes; the vault decides.
+        </p>
+      </div>
+      <button id="request-rebalance" class="btn btn-secondary btn-sm" disabled>Request rebalance</button>
+    </div>
+
+    <div class="activity-grid">
+      <div class="metric">
         <span class="label">Last rebalance</span>
         <span class="value-sm" id="last-rebalance">—</span>
       </div>
-      <div>
-        <span class="label">Nonce</span>
+      <div class="metric">
+        <span class="label">Rebalance</span>
         <span class="value-sm mono" id="nonce">—</span>
       </div>
-      <button id="request-rebalance" class="btn btn-ghost btn-sm" disabled>Request rebalance</button>
+      <div class="metric">
+        <span class="label">Next eligible</span>
+        <span class="value-sm mono" id="next-eligible">—</span>
+      </div>
+      <div class="metric">
+        <span class="label">Autopilot</span>
+        <span id="autopilot-pill" class="pill pill-muted">—</span>
+      </div>
+    </div>
+
+    <!-- ── Attested signal ────────────────────────────────────── -->
+    <div class="signal-block">
+      <div class="card-head card-head-sub">
+        <div>
+          <h3 class="sub-title">Last attested signal</h3>
+          <p class="card-intro">
+            The strategy stays inside the enclave. Its <em>inputs</em> are public and verified by
+            ~100 independent data providers, so any allocation can be audited after the fact.
+          </p>
+        </div>
+        <span class="tag">Flare Data Connector · Web2Json</span>
+      </div>
+
+      <div class="signal-grid" id="signal-grid">
+        <div class="sig"><span class="label">Price</span><span class="value" id="sig-price">—</span></div>
+        <div class="sig"><span class="label">1h change</span><span class="value" id="sig-vwap">—</span></div>
+        <div class="sig"><span class="label">6h change</span><span class="value" id="sig-range">—</span></div>
+        <div class="sig"><span class="label">24h volume</span><span class="value" id="sig-volume">—</span></div>
+        <div class="sig"><span class="label">24h change</span><span class="value" id="sig-change">—</span></div>
+        <div class="sig"><span class="label">Observed</span><span class="value" id="sig-time">—</span></div>
+      </div>
+
+      <div class="band-check" id="band-check">
+        <span class="label">FTSO XRP/USD at last rebalance</span>
+        <span class="value-sm mono" id="ftso-price">—</span>
+        <span id="band-verdict" class="pill pill-muted">—</span>
+      </div>
     </div>
   </section>
 
-  <!-- ── Attested signal ───────────────────────────────────────── -->
-  <section class="card">
-    <h2>Last attested signal <span class="subtle">Flare Data Connector · Web2Json</span></h2>
-    <p class="card-intro">
-      The strategy stays inside the enclave. Its <em>inputs</em> are public and verified by ~100
-      independent data providers, so any allocation can be audited after the fact.
-    </p>
-    <div class="signal-grid" id="signal-grid">
-      <div class="sig"><span class="label">Price</span><span class="value" id="sig-price">—</span></div>
-      <div class="sig"><span class="label">1h change</span><span class="value" id="sig-vwap">—</span></div>
-      <div class="sig"><span class="label">6h change</span><span class="value" id="sig-range">—</span></div>
-      <div class="sig"><span class="label">24h volume</span><span class="value" id="sig-volume">—</span></div>
-      <div class="sig"><span class="label">24h change</span><span class="value" id="sig-change">—</span></div>
-      <div class="sig"><span class="label">Observed</span><span class="value" id="sig-time">—</span></div>
-    </div>
-    <div class="band-check" id="band-check">
-      <span class="label">FTSO XRP/USD at last rebalance</span>
-      <span class="value-sm" id="ftso-price">—</span>
-      <span id="band-verdict" class="pill pill-muted">—</span>
-    </div>
-  </section>
-
-  <footer>
-    <p>
+  <!-- ── Trust flow ───────────────────────────────────────────── -->
+  <section class="card trust" id="docs" aria-labelledby="trust-title">
+    <h2 id="trust-title" class="card-title">How it holds together</h2>
+    <ol class="flow">
+      <li class="flow-step">
+        <span class="flow-index" aria-hidden="true">01</span>
+        <span class="flow-name">Private strategy</span>
+        <span class="flow-desc">The allocation model runs inside an enclave and never leaves it.</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-index" aria-hidden="true">02</span>
+        <span class="flow-name">Public inputs</span>
+        <span class="flow-desc">The market data it reads is attested on-chain by ~100 providers.</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-index" aria-hidden="true">03</span>
+        <span class="flow-name">On-chain guardrails</span>
+        <span class="flow-desc">Five checks bound every plan before the vault will execute it.</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-index" aria-hidden="true">04</span>
+        <span class="flow-name">User funds</span>
+        <span class="flow-desc">Capital moves between venues. It cannot be moved out.</span>
+      </li>
+    </ol>
+    <p class="trust-foot">
       A malicious enclave can still pick a poor-but-legal allocation, or refuse to act. It cannot
       move funds out, concentrate, churn, or act on a price the market never printed.
       <strong>The enclave controls strategy quality, never fund safety.</strong>
     </p>
+  </section>
+
+  <footer>
     <p class="small subtle" id="vault-address-line">—</p>
   </footer>
 </main>
@@ -173,6 +406,6 @@
      closes, so after a redeploy the page keeps running the previous bundle and reads the previous
      `deployments.json` with it — presenting a dead vault as an empty one, which looks like a
      product bug rather than a stale cache. Bump this whenever ui/ changes. -->
-<script type="module" src="app.js?v=4"></script>
+<script type="module" src="app.js?v=10"></script>
 </body>
 </html>

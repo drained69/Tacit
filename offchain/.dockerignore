@@ -1,0 +1,5 @@
+# Bytecode compiled against the host's interpreter, and the cursor file from local runs. Shipping the
+# cursor would make a fresh container start scanning from a block the deployed chain may be far past.
+__pycache__/
+*.pyc
+.autopilot-cursor

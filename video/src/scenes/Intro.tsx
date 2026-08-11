@@ -52,7 +52,7 @@ export const SceneTitle: React.FC = () => {
         <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
           <Pill color={c.good}>● LIVE ON COSTON2</Pill>
           <Pill color={c.dim}>ERC-4626</Pill>
-          <Pill color={c.dim}>60 SOLIDITY + 8 GO TESTS</Pill>
+          <Pill color={c.dim}>61 SOLIDITY + 10 GO TESTS</Pill>
           <Pill color={c.dim}>FLARE SUMMER SIGNAL</Pill>
         </div>
       </Reveal>
@@ -220,6 +220,12 @@ export const SceneHumanManaged: React.FC = () => {
 
 /* ── 4. What Tacit is ─────────────────────────────────────────────────── */
 
+/** Mirrors the parts table in README.md. Four rows, and the count is stated in the
+ *  title below — if a part is added or removed, both change together. The
+ *  autopilot is listed separately from the relayer because it is a distinct
+ *  process (`offchain/autopilot.py`) with a distinct job: the relayer knows *how*
+ *  to run a cycle, the autopilot decides *when*. Both are untrusted, but only one
+ *  of them is trusted for liveness. */
 const PART_ROWS = [
   {
     part: "The vault",
@@ -239,14 +245,20 @@ const PART_ROWS = [
     where: "Anywhere · fully untrusted",
     color: c.dim,
   },
+  {
+    part: "The autopilot",
+    does: "Decides when a cycle runs, so nobody has to open a shell",
+    where: "Anywhere · liveness only",
+    color: c.s2,
+  },
 ];
 
 export const SceneWhatItIs: React.FC = () => (
   <Stage>
     <Heading
       eyebrow="What Tacit is"
-      title="An ERC-4626 vault over FXRP, in three parts"
-      sub="A depositor sees an ordinary vault: deposit, withdraw, a share price that rises with yield."
+      title="An ERC-4626 vault over FXRP, in four parts"
+      sub="A depositor sees an ordinary vault: deposit, withdraw, a share price that rises with yield. Everything below that is machinery for keeping it that boring."
     />
 
     <div style={{ marginTop: 18 }}>

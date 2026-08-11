@@ -57,9 +57,19 @@ export const SCENES = {
   fuzz: 330,
   firelight: 420,
   primitives: 375,
-  realOrSim: 330,
+  // Cross-chain is two scenes, not one: the journey a depositor takes, then what
+  // had to be hardened to make that journey safe. Splitting them is what lets the
+  // second one be a table rather than a footnote. The safety scene gets the larger
+  // budget — four rows of prose plus two side panels is more reading than three
+  // flow cards. Both sit immediately before the honesty table that qualifies them,
+  // so the "not yet deployed" row lands within seconds of the claim.
+  crossChain: 360,
+  crossChainSafety: 420,
+  realOrSim: 360,
   live: 285,
-  closing: 330,
+  // Closing carries the four trust-boundary lines and the sign-off after the
+  // headline, so its reveal ladder runs to frame 218 rather than 200.
+  closing: 375,
 } as const;
 
 export const TOTAL = Object.values(SCENES).reduce((a, b) => a + b, 0);

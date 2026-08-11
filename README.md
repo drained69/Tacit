@@ -80,13 +80,14 @@ rather than a bridge to somewhere else.
 
 ## 2. What Tacit is
 
-An ERC-4626 vault over FXRP with three parts:
+An ERC-4626 vault over FXRP with four parts:
 
 | Part | What it does | Where it runs |
 |---|---|---|
 | **The vault** | Custody, share accounting, and five hard limits on the agent | Coston2, Solidity |
 | **The enclave** | Reads the attested signal, decides the allocation, signs it | Flare Confidential Compute |
 | **The relayer** | Requests attestation, carries the plan on-chain | Anywhere; fully untrusted |
+| **The autopilot** | Decides *when* a cycle runs, so nobody has to | Anywhere; trusted for liveness only |
 
 A depositor sees an ordinary vault: `deposit`, `withdraw`, a share price that rises with yield.
 Underneath, allocation is decided by an agent whose *reasoning* is private and whose *authority* is
@@ -526,6 +527,48 @@ export PRIVATE_KEY=0x...
 Add `--dry-run` to stop before submitting. The FDC round takes 90–180s; the relayer polls and
 reports each stage.
 
+### The autopilot — the same loop, without the shell
+
+`relayer.py` runs one cycle when a human asks it to. `autopilot.py` decides *when* to run one, so
+the vault keeps working with every laptop closed.
+
+```bash
+./.venv/bin/python offchain/autopilot.py --vault $TACIT_VAULT
+```
+
+It acts on two triggers: a `RebalanceRequested` event — what the UI's **Request rebalance** button
+emits — and a heartbeat (`--heartbeat`, default 3600s) so the vault still reacts when nobody is
+watching.
+
+Before spending anything it runs a preflight, because a cycle costs an FDC fee plus two
+transactions and takes minutes to fail:
+
+| Check | Why it is checked *first* |
+|---|---|
+| `lastRebalanceAt + minRebalanceInterval` | Both read from chain — the interval is owner-settable. `RebalanceTooSoon` reverts at step 5, after the fee is already spent |
+| Relayer C2FLR balance vs `--min-balance` | The key is faucet-limited; an unattended loop can drain it |
+| Enclave `/info` identity vs `teeIdentity()` | A mismatch fails every plan with `BadSigner` — cheaper to learn here than by burning an attestation |
+| `paused()`, `venueCount()` | A paused vault or a vault with no venues cannot be rebalanced at all |
+
+Nothing kills it. Every exception is logged and followed by exponential backoff (30s → 15min cap);
+it then keeps going. It polls `get_logs` over explicit block windows with a persisted cursor rather
+than holding a filter handle, because long-lived filters expire silently on public RPCs and a
+watcher that goes deaf looks identical to a quiet market.
+
+```bash
+# preflight prints each check with its chain-read value; nothing is submitted
+./.venv/bin/python offchain/autopilot.py --vault $TACIT_VAULT --once --dry-run
+```
+
+`--status-port` (default 9090) serves one JSON object describing what the daemon is doing. The UI
+reads it as a hint; the countdown beside it is derived from the chain and stays correct with the
+daemon stopped.
+
+**This does not move the trust boundary.** The autopilot chooses *when* a rebalance is attempted,
+never what it contains. `executeRebalance` is permissionless and every field in it is attested,
+signed, or re-derived on-chain. An autopilot that is stopped, stolen or hostile is a liveness
+problem, never a safety one — a stolen autopilot key buys the ability to pay gas.
+
 ### Deploy your own
 
 ```bash
@@ -656,6 +699,8 @@ offchain/
   signal_source.py           Web2Json request construction (the jq subset lives here)
   fdc.py                     FdcHub submission + DA-layer proof polling
   relayer.py                 End-to-end: attest → enclave → executeRebalance
+  autopilot.py               Watches RebalanceRequested + a heartbeat; runs the cycle unattended
+  Dockerfile                 Deploys the autopilot; untrusted infra, unlike tee/Dockerfile
 
 ui/                          Depositor view + live guardrail panel (zero-build)
 script/                      Coston2 and local deployment
@@ -682,9 +727,9 @@ reaches real protocols unchanged.
 
 **Attestation is simulated on Coston2.** See [§9](#9-what-is-real-and-what-is-simulated).
 
-**The relayer is trusted for liveness, not integrity.** It chooses *when* to run and can refuse to
-run. It cannot alter an allocation — every value it carries is attested, signed, or re-derived
-on-chain.
+**The relayer and autopilot are trusted for liveness, not integrity.** They choose *when* to run and
+can refuse to run. Neither can alter an allocation — every value carried on-chain is attested,
+signed, or re-derived there. The autopilot holds a key that can pay gas and nothing else.
 
 **Capital in an async venue is not instantly redeemable.** Firelight settles out of band. The 30%
 cap bounds how much can be waiting at any moment, and `maxRedeem` never counts it.

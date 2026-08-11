@@ -76,13 +76,13 @@ export const SceneArchitecture: React.FC = () => (
         title="FDC Web2Json"
         body={
           <>
-            A public market-data endpoint is fetched by roughly a hundred independent Flare
-            attestation providers. They apply the same JQ transform and vote on the result, which
-            lands in a Merkle tree the vault can check.
+            Roughly a hundred independent Flare providers fetch the same public market-data URL,
+            reduce it to the same few numbers, and vote. What they agree on is published on-chain,
+            so the vault can check those numbers itself instead of trusting whoever delivered them.
           </>
         }
       />
-      <Wire label="attested signal + Merkle proof" delay={70} />
+      <Wire label="attested numbers + proof" delay={70} />
       <Band
         delay={82}
         zone="CONFIDENTIAL"
@@ -90,9 +90,10 @@ export const SceneArchitecture: React.FC = () => (
         title="The enclave"
         body={
           <>
-            Runs in Flare Confidential Compute. Reads the attested numbers, computes target weights
-            per venue, and signs the plan with a key that only exists inside the TEE. The strategy
-            itself never leaves.
+            Runs in Flare Confidential Compute — a sealed machine nobody can read into, not even
+            the operator running it. It reads the agreed numbers, decides how much belongs in each
+            venue, and signs that plan with a key that only exists inside the seal. The strategy
+            never leaves.
           </>
         }
       />
@@ -101,16 +102,16 @@ export const SceneArchitecture: React.FC = () => (
         delay={124}
         zone="UNTRUSTED"
         zoneColor={c.dim}
-        title="The relayer"
+        title="The relayer and autopilot"
         body={
           <>
-            Requests the attestation, collects the proof, and submits both to the vault. It holds no
-            keys and no privileges — anyone can run it, and a hostile one can only stall, never
-            steal.
+            The autopilot watches the chain and decides when a cycle is worth running; the relayer
+            requests the attestation, collects the proof, and submits both to the vault. Neither holds
+            a key or a privilege — anyone can run them, and a hostile one can only stall, never steal.
           </>
         }
       />
-      <Wire label="submitRebalance(plan, proof, signature)" delay={154} />
+      <Wire label="executeRebalance(plan, signature, proof)" delay={154} />
       <Band
         delay={166}
         zone="ON-CHAIN"
@@ -118,9 +119,9 @@ export const SceneArchitecture: React.FC = () => (
         title="TacitVault"
         body={
           <>
-            Verifies the proof against the FDC verification contract, checks the signature against
-            the registered TEE identity, reads the FTSO price reference, then enforces five
-            invariants before a single token moves.
+            Checks the proof against Flare's own attestation contract, checks the signature against
+            the one enclave it has been told to accept, reads the live FTSO price, then enforces
+            five guardrails before a single token moves.
           </>
         }
       />
@@ -131,9 +132,9 @@ export const SceneArchitecture: React.FC = () => (
     <Reveal delay={210}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: 22, color: c.dim, marginRight: 8 }}>Capital lands here:</span>
-        <Pill color={c.s1}>VENUE A · 8% APR · SYNC</Pill>
-        <Pill color={c.s2}>VENUE B · 15% APR · SYNC</Pill>
-        <Pill color={c.s3}>FIRELIGHT stXRP · ASYNC EXIT</Pill>
+        <Pill color={c.s1}>VENUE A · 8% APR · INSTANT EXIT</Pill>
+        <Pill color={c.s2}>VENUE B · 15% APR · INSTANT EXIT</Pill>
+        <Pill color={c.s3}>FIRELIGHT stXRP · QUEUED EXIT</Pill>
         <Pill color={c.idle}>IDLE · held in vault</Pill>
       </div>
     </Reveal>
@@ -146,23 +147,23 @@ const STEPS = [
   {
     n: "1",
     name: "Observe",
-    who: "Relayer",
+    who: "Autopilot → Relayer",
     color: c.s1,
-    body: "The relayer asks FDC to attest a market-data snapshot. ~100 providers fetch the same URL, apply the same JQ transform, and vote. The signal is now a fact the chain can check — nobody has to be trusted to report it honestly.",
+    body: "The autopilot decides a cycle is due — the vault asked for one, or its heartbeat came round — and the relayer asks Flare's Data Connector to certify a market-data snapshot. ~100 providers fetch the same URL, reduce it the same way, and vote. The chain can now check those numbers itself.",
   },
   {
     n: "2",
     name: "Decide",
     who: "Enclave",
     color: c.s3,
-    body: "Inside the TEE, the strategy reads the attested numbers and produces target weights per venue. It signs the plan with its enclave key. The weights are visible on submission; the reasoning that produced them is not.",
+    body: "Inside the sealed enclave, the strategy reads the certified numbers and decides how much belongs in each venue. It signs that plan with its own key. The final split is public the moment it is submitted; the reasoning behind it is not.",
   },
   {
     n: "3",
     name: "Enforce",
     who: "Vault",
     color: c.accent,
-    body: "The vault re-derives the signal hash from the proof, confirms the signature came from the registered TEE identity, pulls a fresh FTSO price, and runs every invariant. Any failure reverts the whole transaction.",
+    body: "The vault rebuilds the signal from the proof and checks the plan points at that exact one, confirms the signature came from the enclave it trusts, pulls a fresh FTSO price, and runs every guardrail. Any single failure undoes the whole transaction.",
   },
   {
     n: "4",
@@ -181,7 +182,7 @@ export const SceneLifecycle: React.FC = () => {
       <Heading
         eyebrow="One rebalance, end to end"
         title="Observe → Decide → Enforce → Settle"
-        sub="The vault enforces a 300-second floor between rebalances. Beyond that, the enclave decides when acting is worth the gas."
+        sub="Nobody starts this by hand: the autopilot watches the chain and runs the loop when the vault asks for it. The vault still enforces a 300-second floor between rebalances."
       />
 
       <div style={{ display: "flex", gap: 18, flex: 1 }}>
@@ -255,37 +256,46 @@ export const SceneLifecycle: React.FC = () => {
   );
 };
 
-/* ── 7. The five invariants ───────────────────────────────────────────── */
+/* ── 7. The five guardrails ───────────────────────────────────────────── */
 
-const INVARIANTS = [
+/** Every figure here is the deployed value, not a design intention:
+ *  conservationToleranceBps=10, capBps 6_000/6_000/3_000, maxTurnoverBps=3_000,
+ *  priceBandBps=500, maxSignalAge=3_600. Re-read TacitVault.sol + Deploy.s.sol
+ *  before changing any number on this slide.
+ *
+ *  Called "guardrails", not "invariants", because that is the word the live UI
+ *  uses — and the screen recording is spliced on directly after this video. Two
+ *  words for one idea makes the viewer do translation work. The word "invariant"
+ *  is reserved for scene 10, where it names actual `invariant_*` test functions. */
+const GUARDRAILS = [
   {
     name: "Conservation",
-    check: "totalAssets() cannot fall by more than the slippage tolerance across a rebalance",
-    stops: "A plan that quietly loses value — including one that routes through a bad swap",
+    check: "Total assets may not fall by more than 0.1% across a rebalance",
+    stops: "A plan that quietly loses value — including one routed through a bad swap",
     err: "ConservationViolated",
   },
   {
     name: "Venue caps",
-    check: "No single venue may hold more than its configured share of the vault",
-    stops: "Concentrating the whole treasury into one protocol",
+    check: "No venue may hold more than its cap — 60% each for the instant-exit venues, 30% for Firelight",
+    stops: "Putting the whole treasury into one protocol",
     err: "VenueCapExceeded",
   },
   {
     name: "Turnover budget",
-    check: "Only a bounded fraction of the vault may move per rebalance",
-    stops: "Draining by a thousand legal-looking small steps",
+    check: "At most 30% of the vault may move in any single rebalance",
+    stops: "Draining the vault in a thousand small, legal-looking steps",
     err: "TurnoverExceeded",
   },
   {
     name: "Price band",
-    check: "Execution price must sit inside a band around the FTSO reference",
-    stops: "Trading against a manipulated pool",
+    check: "The price used must sit within ±5% of Flare's live XRP/USD feed",
+    stops: "Trading against a pool the enclave has just pushed off-market",
     err: "PriceOutOfBand",
   },
   {
     name: "Signal freshness",
-    check: "The plan must reference a signal the FDC attested, recently, and match its hash",
-    stops: "Replaying an old favourable signal, or inventing one",
+    check: "The plan must name a signal Flare certified within the last hour, and match it exactly",
+    stops: "Replaying an old, more favourable signal — or inventing one",
     err: "SignalStale / SignalMismatch",
   },
 ];
@@ -294,8 +304,8 @@ export const SceneInvariants: React.FC = () => (
   <Stage>
     <Heading
       eyebrow="What the chain enforces"
-      title="Five invariants stand between the agent and your deposit"
-      sub="These are not warnings or monitored thresholds. Each one is a require in the rebalance path — fail any, and the transaction reverts with a named error."
+      title="Five guardrails stand between the agent and your deposit"
+      sub="These are not alerts or monitored thresholds. Each one is a check inside the rebalance itself — fail a single one and the whole transaction is undone, with the chain recording which check said no."
     />
 
     <div>
@@ -313,13 +323,13 @@ export const SceneInvariants: React.FC = () => (
           borderBottom: `1px solid ${c.line}`,
         }}
       >
-        <div>Invariant</div>
+        <div>Guardrail</div>
         <div>What it requires</div>
         <div>What it stops</div>
-        <div>Revert</div>
+        <div>Reverts with</div>
       </div>
 
-      {INVARIANTS.map((v, i) => (
+      {GUARDRAILS.map((v, i) => (
         <Reveal key={v.name} delay={46 + i * 26}>
           <div
             style={{
@@ -345,8 +355,8 @@ export const SceneInvariants: React.FC = () => (
 
     <Reveal delay={230}>
       <div style={{ fontSize: 26, color: c.muted, lineHeight: 1.5 }}>
-        Withdrawals are checked separately: the vault refuses to promise liquidity it would have to
-        pull out of an async venue to honour —{" "}
+        Withdrawals are guarded separately: the vault will not promise money it would have to pull
+        out of a queued-exit venue to deliver —{" "}
         <span style={{ fontFamily: code, color: c.accent, fontSize: 22 }}>InsufficientLiquidity</span>
         .
       </div>

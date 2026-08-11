@@ -1,0 +1,15 @@
+{
+  "name": "tacit-ui",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Static interface for the Tacit vault on Flare Coston2. Exists only to tell a host how to serve this directory.",
+  "scripts": {
+    "start": "serve . --listen tcp://0.0.0.0:${PORT:-3000} --no-clipboard"
+  },
+  "dependencies": {
+    "serve": "14.2.6"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

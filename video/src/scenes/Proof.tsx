@@ -11,7 +11,7 @@ const ATTACKS = [
   { move: "Move everything at once, then again, then again", err: "TurnoverExceeded" },
   { move: "Execute against a pool it has just manipulated", err: "PriceOutOfBand" },
   { move: "Reuse yesterday's more favourable signal", err: "SignalStale" },
-  { move: "Sign a plan for a signal the FDC never attested", err: "InvalidProof" },
+  { move: "Sign a plan for a signal Flare never certified", err: "InvalidProof" },
   { move: "Point the plan at a different signal than the proof carries", err: "SignalMismatch" },
   { move: "Grind the vault with back-to-back rebalances", err: "RebalanceTooSoon" },
 ];
@@ -24,7 +24,7 @@ export const SceneAttack: React.FC = () => {
       <Heading
         eyebrow="Adversarial testing"
         title="Now assume the enclave is completely compromised"
-        sub="Every plan below carries a genuine signature from the registered TEE identity. The attacker is inside the trusted component. Here is what it can accomplish."
+        sub="Every plan below carries a real signature from the one enclave this vault was told to trust. The attacker is inside the part that was supposed to be safe. Here is what it can accomplish."
       />
 
       <div style={{ flex: 1 }}>
@@ -224,7 +224,7 @@ export const SceneResidual: React.FC = () => (
       <Reveal delay={130} style={{ flex: 1 }}>
         <Panel accent={c.warn} style={{ padding: "28px 30px" }}>
           <div style={{ fontFamily: code, fontSize: 17, color: c.warn, letterSpacing: "0.14em" }}>
-            TEST: whatTheEnclaveCanStillDo
+            TEST: test_whatTheEnclaveCanStillDo
           </div>
           <div style={{ fontSize: 30, fontWeight: 600, margin: "16px 0 18px", lineHeight: 1.25 }}>
             Leave 95% of the treasury sitting idle, forever.
@@ -265,20 +265,31 @@ const Counter: React.FC<{ to: number; delay: number; suffix?: string }> = ({
   );
 };
 
+/** The five properties asserted by `MaliciousEnclaveInvariant.t.sol`. Names are
+ *  verbatim from the suite so a viewer can grep for them; the plain reading sits
+ *  beside each one because the identifier alone is not an explanation. */
+const INVARIANTS = [
+  { n: "invariant_enclaveCannotDestroyValue", plain: "the share price never falls" },
+  { n: "invariant_sharesRemainBacked", plain: "every share stays fully backed" },
+  { n: "invariant_neverOverAllocated", plain: "the vault never allocates more than it holds" },
+  { n: "invariant_nonceMonotonic", plain: "no plan can be replayed" },
+  { n: "invariant_capsConstrainTheEnclave", plain: "no venue goes over its cap, checked as each plan lands" },
+];
+
 export const SceneFuzz: React.FC = () => (
   <Stage>
     <Heading
-      eyebrow="Stateful invariant fuzzing"
+      eyebrow="Testing against attacks nobody wrote"
       title="The tests do not know what the attack is"
-      sub="Foundry generates hostile rebalance plans against a live vault — random weights, random amounts, random ordering, random depositors — and asserts the properties still hold after every single one."
+      sub="The fuzzer signs thousands of random rebalance plans as the enclave — random weights, random prices, random timing, with real deposits and withdrawals interleaved — and re-checks the same five properties after every one."
     />
 
     <div style={{ display: "flex", gap: 22, marginTop: 6 }}>
       {[
-        { v: 2700, s: "", label: "hostile plans per invariant", delay: 44 },
-        { v: 16000, s: "+", label: "plans per campaign run", delay: 56 },
-        { v: 5, s: "", label: "properties asserted after each one", delay: 68 },
-        { v: 0, s: "", label: "violations found", delay: 80, good: true },
+        { v: 2700, s: "", label: "hostile plans signed per property", delay: 44 },
+        { v: 16000, s: "+", label: "plans across a full run", delay: 56 },
+        { v: 5, s: "", label: "properties re-checked after each one", delay: 68 },
+        { v: 0, s: "", label: "times any of them broke", delay: 80, good: true },
       ].map((m) => (
         <Reveal key={m.label} delay={m.delay} style={{ flex: 1 }}>
           <Panel style={{ padding: "30px 28px", height: "100%" }}>
@@ -303,17 +314,12 @@ export const SceneFuzz: React.FC = () => (
     <div style={{ flex: 1 }} />
 
     <Reveal delay={130}>
-      <div style={{ fontFamily: code, fontSize: 21, color: c.muted, lineHeight: 2.1 }}>
-        {[
-          "invariant_totalAssetsNeverDropsBeyondTolerance",
-          "invariant_venueSharesNeverExceedCaps",
-          "invariant_sumOfVenueBalancesEqualsTotalAssets",
-          "invariant_shareValueNeverDecreasesFromRebalance",
-          "invariant_liquidWithdrawalsAlwaysHonoured",
-        ].map((n) => (
-          <div key={n} style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <div style={{ fontFamily: code, fontSize: 20, color: c.muted, lineHeight: 2.0 }}>
+        {INVARIANTS.map((iv) => (
+          <div key={iv.n} style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <span style={{ color: c.good, fontSize: 20 }}>✓</span>
-            <span>{n}</span>
+            <span style={{ width: 560, flexShrink: 0 }}>{iv.n}</span>
+            <span style={{ color: c.text }}>{iv.plain}</span>
             <div style={{ flex: 1, borderBottom: `1px dotted ${c.line}`, margin: "0 6px" }} />
             <span style={{ color: c.good }}>PASS</span>
           </div>
@@ -332,22 +338,26 @@ export const SceneFuzz: React.FC = () => (
 
 /* ── 11. The Firelight discovery ──────────────────────────────────────── */
 
+/** Every claim here is checked against the adapter, not the write-up:
+ *  probeSynchronous() and the AsyncWithdrawalUnsupported tripwire are in
+ *  ERC4626Venue.sol, liquidOnDemand and InsufficientLiquidity in TacitVault.sol,
+ *  and liquidityBps() is the number the enclave actually clips against. */
 const DEFENCES = [
   {
-    t: "Venues declare their semantics",
-    b: "Each adapter reports liquidOnDemand — whether a withdrawal settles now or enters a queue.",
+    t: "Test the venue before trusting it",
+    b: "probeSynchronous() withdraws 1% and watches for the tell: shares gone, no tokens back.",
   },
   {
-    t: "Liquidity is computed, not assumed",
-    b: "maxWithdraw() counts only assets in synchronous venues plus the idle balance.",
+    t: "Shares leaving without tokens arriving is an error",
+    b: "The adapter reverts, which undoes the burn. A failed rebalance beats a fake one.",
   },
   {
-    t: "The vault refuses to over-promise",
-    b: "A withdrawal beyond that number reverts with InsufficientLiquidity instead of half-executing.",
+    t: "Only count money the vault can actually get",
+    b: "A queued venue counts as zero. Ask for more than that and the withdrawal reverts.",
   },
   {
-    t: "The strategy is told the constraint",
-    b: "The enclave receives the async cap as an input, so it plans around it rather than into it.",
+    t: "Tell the strategy what each venue will release",
+    b: "Every venue reports how much of its position is available now. The enclave plans under it.",
   },
 ];
 
@@ -355,35 +365,36 @@ export const SceneFirelight: React.FC = () => (
   <Stage>
     <Heading
       eyebrow="What integration actually taught us"
-      title="Firelight does not give the money back on request"
-      sub="Reading the deployed contracts rather than the marketing page surfaced a semantic difference that a naive vault would have turned into a bank run."
+      title="Firelight takes the withdrawal and pays later"
+      sub="Reading the deployed contract instead of the write-up caught a difference that a trusting vault would have turned into a bank run."
     />
 
     <div style={{ display: "flex", gap: 22, marginBottom: 32 }}>
       <Reveal delay={40} style={{ flex: 1 }}>
         <Panel accent={c.s1} style={{ padding: "26px 30px", height: "100%" }}>
           <div style={{ fontFamily: code, fontSize: 17, letterSpacing: "0.14em", color: c.s1 }}>
-            SYNCHRONOUS · VENUE A, VENUE B
+            INSTANT EXIT · VENUE A, VENUE B
           </div>
           <div style={{ fontSize: 29, fontWeight: 600, margin: "14px 0 12px" }}>
-            withdraw() returns assets in the same transaction
+            Ask for the money, get the money
           </div>
           <div style={{ fontSize: 21, color: c.muted, lineHeight: 1.5 }}>
-            What every ERC-4626 integration silently assumes.
+            Tokens arrive in the same transaction. What every integration quietly assumes.
           </div>
         </Panel>
       </Reveal>
       <Reveal delay={62} style={{ flex: 1 }}>
         <Panel accent={c.warn} style={{ padding: "26px 30px", height: "100%" }}>
           <div style={{ fontFamily: code, fontSize: 17, letterSpacing: "0.14em", color: c.warn }}>
-            ASYNCHRONOUS · FIRELIGHT
+            QUEUED EXIT · FIRELIGHT
           </div>
           <div style={{ fontSize: 29, fontWeight: 600, margin: "14px 0 12px" }}>
-            requestWithdraw() opens a queue position
+            The shares vanish and nothing arrives
           </div>
           <div style={{ fontSize: 21, color: c.muted, lineHeight: 1.5 }}>
-            Assets arrive later. A vault that treats this as spendable liquidity is insolvent on
-            paper the moment enough depositors leave at once.
+            It takes the withdrawal, opens a claim, and settles later — through the same call that
+            every other vault uses to pay immediately. A vault that counts that as cash is
+            promising money it does not have.
           </div>
         </Panel>
       </Reveal>
@@ -424,9 +435,9 @@ export const SceneFirelight: React.FC = () => (
           color: c.muted,
         }}
       >
-        The vault is now correct against{" "}
-        <span style={{ color: c.text }}>both kinds of venue</span> — which matters well beyond
-        Firelight, because every async venue added later inherits the same handling.
+        The vault still does not support queued venues — it{" "}
+        <span style={{ color: c.text }}>notices them and refuses</span>, rather than booking money
+        it cannot get. Saying so out loud is the difference between a known limit and a hidden one.
       </div>
     </Reveal>
   </Stage>
