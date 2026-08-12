@@ -32,6 +32,56 @@ const RPC_URL = params.get("rpc") || "https://coston2-api.flare.network/ext/C/rp
 // is missing or unreachable.
 let AUTOPILOT_URL = params.get("autopilot") || "";
 
+// ── the second chain ────────────────────────────────────────
+//
+// The vault lives on Coston2 and only ever lives there. What the spoke adds is a second *entrance*:
+// a LayerZero OFT on Base Sepolia whose `send()` carries a compose message, so one signature on
+// Base Sepolia burns the FXRP mirror there, releases real FXRP from escrow on Coston2, and has the
+// composer run `vault.deposit()` — with the depositor holding no Coston2 gas at any point.
+//
+// Everything about that route is read from deployments.json rather than hardcoded, so a redeploy of
+// either side is a config change. Null until `boot()` loads it; every spoke-dependent branch checks.
+let SPOKE = null;
+let COMPOSER_ADDRESS = "";
+let HUB_EID = 40294;
+let LZ_SCAN = "https://testnet.layerzeroscan.com";
+let HUB_EXPLORER = COSTON2.blockExplorerUrls[0];
+
+// Which entrance the deposit tab is currently pointed at: "hub" | "spoke".
+//
+// Persisted in sessionStorage because `chainChanged` reloads the page (see `boot()`), and switching
+// the wallet to Base Sepolia is *exactly* the moment this must not reset — a picker that snaps back
+// to Coston2 the instant you follow its own instruction is worse than no picker.
+let source = sessionStorage.getItem("tacit.source") === "spoke" ? "spoke" : "hub";
+if (params.get("source") === "spoke") source = "spoke";
+if (params.get("source") === "hub") source = "hub";
+
+/// The chain the selected source signs on, in `wallet_addEthereumChain` shape.
+function sourceChain() {
+  if (source === "spoke" && SPOKE) {
+    return {
+      chainId: `0x${SPOKE.chainId.toString(16)}`,
+      chainName: SPOKE.name,
+      nativeCurrency: { name: SPOKE.nativeName, symbol: SPOKE.nativeSymbol, decimals: 18 },
+      rpcUrls: [SPOKE.rpc],
+      blockExplorerUrls: [SPOKE.explorer],
+    };
+  }
+  return COSTON2;
+}
+
+/// The native-token symbol the wallet needs to sign the selected source's transactions.
+/// Named because two labels on the page ("… gas", available line) both key off this and drift
+/// apart the moment either is inlined.
+function sourceGasSymbol() {
+  return source === "spoke" && SPOKE ? SPOKE.nativeSymbol : COSTON2.nativeCurrency.symbol;
+}
+
+/// True when the cross-chain entrance is both selected and actually configured. Every write path
+/// asks this rather than reading `source` directly, so a missing spoke block degrades to the hub
+/// route instead of throwing on `SPOKE.assetOFT`.
+const viaSpoke = () => source === "spoke" && SPOKE !== null && mode === "deposit";
+
 const VAULT_ABI = [
   "function asset() view returns (address)",
   "function totalAssets() view returns (uint256)",
@@ -41,6 +91,9 @@ const VAULT_ABI = [
   "function symbol() view returns (string)",
   "function convertToAssets(uint256) view returns (uint256)",
   "function convertToShares(uint256) view returns (uint256)",
+  // Used to floor the cross-chain deposit: the composer's inner hop carries a `minAmountLD` in
+  // shares, and quoting it from the vault is the only way to make that floor mean anything.
+  "function previewDeposit(uint256) view returns (uint256)",
   "function maxWithdraw(address) view returns (uint256)",
   "function venueCount() view returns (uint256)",
   "function venues(uint256) view returns (address venue, uint16 capBps, bool active, bool liquidOnDemand)",
@@ -73,6 +126,33 @@ const VENUE_ABI = [
   "function liquidityBps() view returns (uint16)",
 ];
 
+// The spoke's FXRP mirror, as much of LayerZero's OFT surface as one deposit needs.
+//
+// `SendParam` is a struct, and its `amountLD`/`minAmountLD` are in *local* decimals while the wire
+// format carries `sharedDecimals` (6) — which matters here because the share leg is 9dp, so the
+// inner hop's floor gets truncated to a 1000-unit granularity. Deposits themselves are 6dp FXRP on
+// both sides, so the outer send never truncates.
+const OFT_ABI = [
+  "function quoteSend((uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes extraOptions, bytes composeMsg, bytes oftCmd) sendParam, bool payInLzToken) view returns ((uint256 nativeFee, uint256 lzTokenFee))",
+  "function send((uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes extraOptions, bytes composeMsg, bytes oftCmd) sendParam, (uint256 nativeFee, uint256 lzTokenFee) fee, address refundAddress) payable returns ((bytes32 guid, uint64 nonce, (uint256 nativeFee, uint256 lzTokenFee) fee), (uint256 amountSentLD, uint256 amountReceivedLD))",
+  "function balanceOf(address) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
+];
+
+// The tuple the composer decodes out of `composeMsg`. Must match `VaultComposerSync`'s expectation
+// exactly — an encoding mismatch does not revert on the spoke, it strands the message on the hub.
+const SEND_PARAM_TUPLE =
+  "(uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes extraOptions, bytes composeMsg, bytes oftCmd)";
+
+// Tolerance applied to `previewDeposit` when flooring the inner hop, in basis points.
+//
+// Not slippage in the AMM sense — an ERC-4626 deposit has no price impact. It absorbs the exchange
+// rate moving between quote and execution: yield accrues, and a rebalance can land in between. 50bps
+// is generous for a minute-scale window, and the floor still catches the case that matters, which is
+// the share price having moved by orders of magnitude rather than fractions of a percent.
+const DEPOSIT_TOLERANCE_BPS = 50n;
+
 // ── state ───────────────────────────────────────────────────
 
 const $ = (id) => document.getElementById(id);
@@ -100,6 +180,19 @@ let walletAssets = null; // FXRP in the wallet, cached from refreshFunding()
 let withdrawable = null; // maxWithdraw(account), cached from refresh()
 let sharePriceText = "—"; // assets per whole share, cached from refresh()
 let shareSymbol = "shares"; // the vault's own ERC-20 symbol, read once in wire()
+
+// Spoke-side handles. The read provider is its own JSON-RPC connection to Base Sepolia, for the
+// same reason the hub's is: the funding panel has to be able to show a spoke balance while the
+// wallet is still sitting on Coston2, which is precisely the state a first-time depositor is in.
+let spokeReadProvider = null;
+let spokeAssetRead = null; // OFT bound to spokeReadProvider — balances and fee quotes
+let spokeAssetWrite = null; // OFT bound to the signer — the one send() the deposit needs
+let spokeAssets = null; // FXRP mirror held on the spoke, cached from refreshFunding()
+let spokeNative = null; // ETH on the spoke, cached from refreshFunding()
+let bridgeFeeText = "—"; // last quoted LayerZero fee, cached for renderReceive()
+let quoteSeq = 0; // guards against a slow fee quote overwriting a newer one
+let bridgeFeeWei = null; // last quoted native fee, kept so deposit() does not re-quote
+let quoteTimer = null; // debounce handle for renderReceive → refreshBridgeFee
 
 // ── formatting ──────────────────────────────────────────────
 
@@ -133,8 +226,6 @@ function timeAgo(ts) {
 // the operator, and the vault starts at `lastRebalanceAt == 0` — so neither is treated as an
 // error; the dot matches the label rather than dressing every state in the same green.
 function renderHeroStatus(teeIdentity, lastAt) {
-  const label = $("hero-status-label");
-  const dot = $("hero-dot");
   let text;
   let state;
   if (teeIdentity === ethers.ZeroAddress) {
@@ -147,8 +238,14 @@ function renderHeroStatus(teeIdentity, lastAt) {
     text = "Strategy active";
     state = "good";
   }
-  label.textContent = text;
-  dot.className = `dot dot-${state}`;
+  // The Vault and Strategy pages both carry a hero-status widget; each has its own IDs because
+  // duplicate IDs would break getElementById. Both are written here so whichever page is currently
+  // visible shows the same verdict without cross-page copying.
+  for (const [labelId, dotId] of [["hero-status-label", "hero-dot"], ["strategy-status-label", "strategy-dot"]]) {
+    const l = $(labelId), d = $(dotId);
+    if (l) l.textContent = text;
+    if (d) d.className = `dot dot-${state}`;
+  }
 }
 
 function setStatus(msg, kind = "") {
@@ -218,18 +315,118 @@ function setMode(next) {
   $("deposit").classList.toggle("is-hidden", mode !== "deposit");
   $("withdraw").classList.toggle("is-hidden", mode !== "withdraw");
   $("withdraw-note").hidden = mode !== "withdraw";
+  // Withdrawals are hub-only, so the source picker is hidden rather than shown greyed out —
+  // an option that can never apply is not an option.
+  const picker = $("source-picker");
+  if (picker) picker.classList.toggle("is-hidden", mode !== "deposit");
 
   renderAvailable();
   renderReceive();
+  refreshFunding().catch(() => {});
+}
+
+/// Switches the deposit route between the hub (Coston2) and the spoke (Base Sepolia).
+///
+/// Everything downstream reads from `source`, `viaSpoke()` and the spoke config — no branch
+/// duplicates the state — so this just flips the switch and lets the panel repaint itself.
+/// Persisted in sessionStorage because switching the wallet to Base Sepolia reloads the page,
+/// and a picker that snapped back to Coston2 the instant the wallet followed its instruction
+/// would be worse than no picker.
+function setSource(next) {
+  if (next !== "hub" && next !== "spoke") return;
+  if (next === "spoke" && !SPOKE) {
+    setStatus("No spoke configured. Deposit from Coston2, or add a spoke to deployments.json.", "error");
+    return;
+  }
+  source = next;
+  sessionStorage.setItem("tacit.source", source);
+
+  for (const id of ["source-hub", "source-spoke"]) {
+    const btn = $(id);
+    if (!btn) continue;
+    const on = btn.dataset.source === source;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  // The unit next to the amount input stays "FXRP" — both routes deposit FXRP — but the funding
+  // panel and the button labels change with the source.
+  updateSourceLabels();
+  renderAvailable();
+  renderReceive();
+  depositReady();
+  refreshFunding().catch(() => {});
+
+  // If a wallet is already connected but on the wrong chain for the newly-picked source, offer
+  // the switch here rather than at deposit-click time. Doing it here means the button below is
+  // enabled *before* the user reaches for it, instead of being greyed out with no explanation.
+  ensureWalletOnSource().catch(() => {});
+}
+
+/// Prompts the wallet to switch to the currently-selected source's chain, if it is not already.
+///
+/// A `chainChanged` event fires after the switch and reloads the page (see `boot()`); the silent
+/// reconnect on the next load restores account + write handles without a second popup, so this
+/// costs the user exactly one signature — not two — to move between routes.
+async function ensureWalletOnSource() {
+  if (!signer || !window.ethereum) return;
+  const target = sourceChain();
+  const targetId = parseInt(target.chainId, 16);
+  const current = await provider.getNetwork();
+  if (Number(current.chainId) === targetId) return;
+  try {
+    await window.ethereum.request({ method: "wallet_addEthereumChain", params: [target] });
+  } catch { /* already known, or user declined the add — the switch below can still succeed */ }
+  await window.ethereum.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: target.chainId }],
+  });
+}
+
+/// Updates every label that depends on which chain the deposit signs on. Kept in one place so
+/// the network indicator, funding pill and deposit note cannot drift apart when the source flips.
+function updateSourceLabels() {
+  const spoke = viaSpoke();
+  const netName = $("network-name");
+  const netEnv = $("network-env");
+  const balGasSymbol = $("bal-gas-symbol");
+  const balFxrpWhere = $("bal-fxrp-where");
+  const depositNote = $("deposit-note");
+  const depositBtn = $("deposit");
+  const faucetLink = $("faucet-link");
+
+  if (spoke && SPOKE) {
+    if (netName) netName.textContent = SPOKE.name;
+    if (netEnv) netEnv.textContent = "Deposit chain";
+    if (balGasSymbol) balGasSymbol.textContent = SPOKE.nativeSymbol;
+    if (balFxrpWhere) balFxrpWhere.textContent = "on spoke";
+    if (depositBtn) depositBtn.textContent = "Deposit from Base Sepolia";
+    if (depositNote) depositNote.hidden = false;
+    if (faucetLink) { faucetLink.href = SPOKE.faucet; faucetLink.textContent = "Base Sepolia faucet ↗"; }
+  } else {
+    if (netName) netName.textContent = "Coston2";
+    if (netEnv) netEnv.textContent = "Vault chain";
+    if (balGasSymbol) balGasSymbol.textContent = "C2FLR";
+    if (balFxrpWhere) balFxrpWhere.textContent = "deposits";
+    if (depositBtn) depositBtn.textContent = "Deposit";
+    if (depositNote) depositNote.hidden = true;
+    if (faucetLink) { faucetLink.href = "https://faucet.flare.network/coston2"; faucetLink.textContent = "Open faucet ↗"; }
+  }
 }
 
 /// "Available" is a different number per action: what the wallet holds, or what the vault will
 /// actually pay out right now. Both are already cached, so this costs no round trip.
+///
+/// When the deposit source is the spoke, "In wallet" quotes the FXRP mirror on Base Sepolia,
+/// not the Coston2 balance — the latter is not what will be debited, and showing it would
+/// promise a route that is not the one selected.
 function renderAvailable() {
   const depositing = mode === "deposit";
   $("available-label").textContent = depositing ? "In wallet" : "Withdrawable";
 
-  const amount = depositing ? walletAssets : withdrawable;
+  const amount = depositing
+    ? (viaSpoke() ? spokeAssets : walletAssets)
+    : withdrawable;
   $("available-amount").textContent =
     amount === null ? "—" : `${fmtUnits(amount)} FXRP`;
 }
@@ -269,6 +466,19 @@ function renderReceive() {
       minimumFractionDigits: 4, maximumFractionDigits: 4,
     })} ${shareSymbol} burned`;
   }
+
+  // The bridge-fee row is only meaningful for the spoke route. Debounce the quote — a fee that
+  // fires an RPC per keystroke lags behind the cursor, and the number changes little between
+  // characters of the same amount.
+  const routeRow = $("receive-route-row");
+  if (mode === "deposit" && viaSpoke()) {
+    routeRow.classList.remove("is-hidden");
+    $("receive-route").textContent = bridgeFeeText;
+    if (quoteTimer) clearTimeout(quoteTimer);
+    quoteTimer = setTimeout(() => { refreshBridgeFee().catch(() => {}); }, 350);
+  } else {
+    routeRow.classList.add("is-hidden");
+  }
 }
 
 // ── connection ──────────────────────────────────────────────
@@ -282,14 +492,16 @@ async function connect() {
     provider = new ethers.BrowserProvider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
 
-    // Add-then-switch: `wallet_addEthereumChain` is a no-op if the chain is already known, so
-    // this handles both the first-time and returning cases without branching on error codes.
+    // The chain the wallet must be on depends on which route the user picked. Add-then-switch:
+    // `wallet_addEthereumChain` is a no-op if the chain is already known, so this handles both
+    // the first-time and returning cases without branching on error codes.
+    const target = sourceChain();
     try {
-      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [COSTON2] });
+      await window.ethereum.request({ method: "wallet_addEthereumChain", params: [target] });
     } catch { /* already added, or user declined the add but may still be on the chain */ }
     await window.ethereum.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: COSTON2.chainId }],
+      params: [{ chainId: target.chainId }],
     });
 
     provider = new ethers.BrowserProvider(window.ethereum);
@@ -297,7 +509,7 @@ async function connect() {
     account = await signer.getAddress();
 
     $("connect").textContent = shortAddr(account);
-    $("network-pill").textContent = "Coston2";
+    $("network-pill").textContent = target.chainName;
     $("network-pill").className = "pill pill-good";
     $("copy-address").disabled = false;
 
@@ -340,28 +552,55 @@ async function wire() {
   $("watch-fxrp").textContent = `Add ${assetSymbol} to wallet`;
 
   if (signer) {
-    // Writes only go through the wallet, and only when it is on the same chain the page reads
-    // from — otherwise a deposit would broadcast to the wrong network.
-    const [readNet, walletNet] = await Promise.all([
-      readProvider.getNetwork(),
-      provider.getNetwork(),
-    ]);
-    if (readNet.chainId !== walletNet.chainId) {
+    // Two chains are legitimate for writes now: Coston2 for the hub route, and the spoke for the
+    // LayerZero deposit. So the check is not "same as the read chain" — it is "one of the two
+    // this page knows about" — and it drives which contract handles are bound rather than gating
+    // writes entirely. Withdraw and requestRebalance still require the hub; the deposit button
+    // decides for itself which chain it needs based on the selected source.
+    const walletNet = await provider.getNetwork();
+    const walletId = Number(walletNet.chainId);
+
+    vaultWrite = null;
+    assetWrite = null;
+    spokeAssetWrite = null;
+
+    if (walletId === 114) {
+      vaultWrite = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, signer);
+      assetWrite = new ethers.Contract(assetAddr, ERC20_ABI, signer);
+    } else if (SPOKE && walletId === SPOKE.chainId) {
+      spokeAssetWrite = new ethers.Contract(SPOKE.assetOFT, OFT_ABI, signer);
+    } else {
       setStatus(
-        `Wallet is on chain ${walletNet.chainId} but this page reads chain ${readNet.chainId}. ` +
+        `Wallet is on chain ${walletId}, but the vault is on Coston2 (114)` +
+        (SPOKE ? ` and the spoke is on ${SPOKE.name} (${SPOKE.chainId})` : "") + ". " +
         `Switch networks to deposit.`,
         "error"
       );
-      return true; // reads still work; writes stay disabled
+      return true; // reads still work; the buttons below decide their own gating
     }
 
-    vaultWrite = new ethers.Contract(VAULT_ADDRESS, VAULT_ABI, signer);
-    assetWrite = new ethers.Contract(assetAddr, ERC20_ABI, signer);
-    $("deposit").disabled = false;
-    $("withdraw").disabled = false;
-    $("request-rebalance").disabled = false;
+    // Withdraw and requestRebalance are hub-only.
+    $("withdraw").disabled = walletId !== 114;
+    $("request-rebalance").disabled = walletId !== 114;
+    // Deposit is enabled whenever a route matches the wallet. `depositReady()` recomputes this
+    // on every source change so a mismatch is announced through the button, not by silent revert.
+    depositReady();
   }
   return true;
+}
+
+/// Enables the deposit button only when the selected source matches the wallet's chain.
+///
+/// Split out because two things drive it (source picker click and wallet chain change) and both
+/// need to stay in agreement — a "Deposit" button enabled while the wallet is on the wrong chain
+/// fails at signature time with a message that names neither chain.
+function depositReady() {
+  const btn = $("deposit");
+  if (!btn) return;
+  if (!signer) { btn.disabled = true; return; }
+  const spoke = viaSpoke();
+  const ok = spoke ? !!spokeAssetWrite : !!vaultWrite;
+  btn.disabled = !ok;
 }
 
 // ── reads ───────────────────────────────────────────────────
@@ -389,10 +628,11 @@ async function refresh() {
     ]);
 
     setValue("tvl", `${fmtUnits(totalAssets)} FXRP`);
-    $("tee-identity").textContent = teeIdentity === ethers.ZeroAddress ? "not set" : teeIdentity;
-    $("nonce").textContent = `#${nonce.toString()}`;
-    $("last-rebalance").textContent = timeAgo(lastAt);
-    $("hero-last-rebalance").textContent = timeAgo(lastAt);
+    if ($("tee-identity")) $("tee-identity").textContent = teeIdentity === ethers.ZeroAddress ? "not set" : teeIdentity;
+    if ($("nonce")) $("nonce").textContent = `#${nonce.toString()}`;
+    if ($("strategy-nonce")) $("strategy-nonce").textContent = `#${nonce.toString()}`;
+    if ($("last-rebalance")) $("last-rebalance").textContent = timeAgo(lastAt);
+    if ($("hero-last-rebalance")) $("hero-last-rebalance").textContent = timeAgo(lastAt);
     renderHeroStatus(teeIdentity, lastAt);
 
     // A vault that has never rebalanced is eligible immediately — the contract skips the interval
@@ -662,42 +902,61 @@ async function refreshFunding() {
   }
 
   try {
-    const [gas, fxrp] = await Promise.all([
+    const wantSpoke = viaSpoke() && spokeAssetRead;
+    // Both routes are read in parallel — the funding panel shows whichever the source picker is
+    // pointed at, but each route quotes its own tokens on its own chain and the two share nothing.
+    const [gas, fxrp, sGas, sFxrp] = await Promise.all([
       readProvider.getBalance(account),
       assetRead.balanceOf(account),
+      wantSpoke ? spokeReadProvider.getBalance(account) : Promise.resolve(null),
+      wantSpoke ? spokeAssetRead.balanceOf(account) : Promise.resolve(null),
     ]);
 
-    $("bal-gas").textContent = `${Number(ethers.formatUnits(gas, 18)).toFixed(3)} C2FLR`;
-    $("bal-fxrp").textContent = `${fmtUnits(fxrp)} FXRP`;
-
-    // The deposit tab quotes the same balance this panel already fetched, so it costs nothing.
     walletAssets = fxrp;
+    if (wantSpoke) { spokeNative = sGas; spokeAssets = sFxrp; }
+
+    // What the panel shows is the source-selected pair. The hub balances stay cached for the
+    // hub deposit path; the spoke's are cached for its send.
+    const gasShown = wantSpoke ? sGas : gas;
+    const fxrpShown = wantSpoke ? sFxrp : fxrp;
+    const gasSym = sourceGasSymbol();
+    $("bal-gas").textContent = `${Number(ethers.formatUnits(gasShown, 18)).toFixed(4)} ${gasSym}`;
+    $("bal-fxrp").textContent = `${fmtUnits(fxrpShown)} FXRP`;
+
     renderAvailable();
 
     // Gas is judged against a floor rather than zero: a dust balance passes a `> 0` check and then
-    // still fails to cover a deposit, which sends people looking for a contract bug.
-    const needsGas = gas < ethers.parseUnits("0.05", 18);
-    const needsFxrp = fxrp === 0n;
+    // still fails to cover a deposit, which sends people looking for a contract bug. Spoke sends
+    // pay a real LayerZero fee too, so the floor is higher there.
+    const gasFloor = wantSpoke ? ethers.parseUnits("0.002", 18) : ethers.parseUnits("0.05", 18);
+    const needsGas = gasShown < gasFloor;
+    const needsFxrp = fxrpShown === 0n;
+    const chain = wantSpoke && SPOKE ? SPOKE.name : "Coston2";
+    const faucetLine = wantSpoke && SPOKE
+      ? `Get ${gasSym} from the ${chain} faucet; FXRP arrives on the spoke via BridgeAssetToSpoke.`
+      : faucetText;
 
     if (needsGas && needsFxrp) {
-      verdict.textContent = "needs C2FLR and FXRP";
+      verdict.textContent = `needs ${gasSym} and FXRP`;
       verdict.className = "pill pill-warn";
-      note.textContent = `${faucetText} Request both, then come back.`;
+      note.textContent = `${faucetLine}`;
       note.className = "funding-note warn";
     } else if (needsGas) {
-      verdict.textContent = "needs C2FLR for gas";
+      verdict.textContent = `needs ${gasSym} for gas`;
       verdict.className = "pill pill-warn";
-      note.textContent = `You hold FXRP but not enough C2FLR to pay for the transaction. ${faucetText}`;
+      note.textContent = `You hold FXRP but not enough ${gasSym} on ${chain} to pay for the transaction. ${faucetLine}`;
       note.className = "funding-note warn";
     } else if (needsFxrp) {
       verdict.textContent = "needs FXRP to deposit";
       verdict.className = "pill pill-warn";
-      note.textContent = `Gas is covered. FXRP has no public mint on Coston2, so the faucet is the only source. ${faucetText}`;
+      note.textContent = wantSpoke
+        ? `Bridge FXRP from Coston2 to the spoke first, then deposit in one signature.`
+        : `Gas is covered. FXRP has no public mint on Coston2, so the faucet is the only source. ${faucetLine}`;
       note.className = "funding-note warn";
     } else {
       verdict.textContent = "funded";
       verdict.className = "pill pill-good";
-      note.textContent = `${faucetText} You have enough of both to deposit.`;
+      note.textContent = `${faucetLine} You have enough of both to deposit.`;
       note.className = "funding-note";
     }
   } catch (err) {
@@ -756,7 +1015,70 @@ function parseAmount() {
   return value;
 }
 
+/// Builds the SendParam pair the composer expects. Kept out of the deposit path so the fee
+/// quote and the actual send use one construction — an encoding drift between the two would
+/// have the user pay a fee for a message the hub then strands.
+function buildSpokeSend(amount, minShares) {
+  const hop = {
+    dstEid: HUB_EID,
+    to: ethers.zeroPadValue(account, 32),
+    amountLD: 0n, // ignored — _depositAndSend overwrites with the shares actually minted
+    minAmountLD: minShares,
+    extraOptions: "0x",
+    composeMsg: "0x",
+    oftCmd: "0x",
+  };
+  const composeMsg = ethers.AbiCoder.defaultAbiCoder().encode(
+    [SEND_PARAM_TUPLE, "uint256"],
+    [hop, 0n], // minMsgValue = 0 for the local case; only non-zero when SHARES_TO_SPOKE
+  );
+  const outer = {
+    dstEid: HUB_EID,
+    to: ethers.zeroPadValue(COMPOSER_ADDRESS, 32),
+    amountLD: amount,
+    minAmountLD: amount,
+    // Empty: WireSpoke set enforced options for msgType 2 (send-with-compose). Passing options
+    // here would append to the enforced set, which is not what we want.
+    extraOptions: "0x",
+    composeMsg,
+    oftCmd: "0x",
+  };
+  return { hop, outer };
+}
+
+/// Quotes the LayerZero fee for the current amount and paints it into the receive panel.
+///
+/// Never throws to the caller — a failed quote leaves the field on its last-known value, and the
+/// send itself will surface the real error at signature time. Uses a monotonic counter to guard
+/// against a slow quote overwriting a newer one.
+async function refreshBridgeFee() {
+  if (!viaSpoke() || !spokeAssetRead || !account) return;
+  const raw = $("amount").value.trim();
+  if (!raw) { bridgeFeeText = "—"; $("receive-route").textContent = "—"; return; }
+
+  const seq = ++quoteSeq;
+  try {
+    const amount = ethers.parseUnits(raw, assetDecimals);
+    if (amount <= 0n) return;
+    // Floor the inner hop to `previewDeposit * (1 - tolerance)` so the composer's minAmountLD
+    // catches a genuine share-price collapse but ignores minute-scale drift from yield or a
+    // rebalance landing between quote and execution.
+    const shares = await vaultRead.previewDeposit(amount);
+    const minShares = (shares * (10_000n - DEPOSIT_TOLERANCE_BPS)) / 10_000n;
+    const { outer } = buildSpokeSend(amount, minShares);
+    const fee = await spokeAssetRead.quoteSend(outer, false);
+    if (seq !== quoteSeq) return; // a newer quote is already in flight
+    bridgeFeeWei = fee.nativeFee;
+    bridgeFeeText = `${Number(ethers.formatUnits(fee.nativeFee, 18)).toFixed(6)} ${SPOKE.nativeSymbol}`;
+    $("receive-route").textContent = bridgeFeeText;
+  } catch {
+    if (seq === quoteSeq) { bridgeFeeText = "quote failed"; $("receive-route").textContent = bridgeFeeText; }
+  }
+}
+
 async function deposit() {
+  if (viaSpoke()) return depositViaSpoke();
+
   try {
     const amount = parseAmount();
 
@@ -798,6 +1120,79 @@ async function deposit() {
   } finally {
     // In `finally` because the wallet-cancel path is an ordinary outcome here, and a button left
     // spinning after someone declines a signature reads as a hung page.
+    setBusy("deposit", null);
+    renderReceive();
+  }
+}
+
+/// Deposit via the LayerZero spoke: one send() on Base Sepolia carries a compose message that
+/// runs `vault.deposit()` on Coston2. The depositor signs once, pays in ETH, and holds no
+/// Coston2 gas. Shares arrive as tFXRP on Coston2 within a minute; both legs are on LayerZero
+/// Scan under the same GUID.
+async function depositViaSpoke() {
+  const track = $("tx-track");
+  track.classList.add("is-hidden");
+  track.innerHTML = "";
+  try {
+    if (!spokeAssetWrite) {
+      setStatus(`Switch the wallet to ${SPOKE.name} to deposit via LayerZero.`, "error");
+      return;
+    }
+    const amount = parseAmount();
+
+    // Balance and gas checks fired here name the failing chain — the revert further down would
+    // name a LayerZero endpoint the depositor has never seen.
+    const held = await spokeAssetRead.balanceOf(account);
+    if (held < amount) {
+      setStatus(
+        `You hold ${fmtUnits(held)} FXRP on ${SPOKE.name} but tried to deposit ${$("amount").value}. ` +
+        `Bridge FXRP from Coston2 to the spoke first.`,
+        "error"
+      );
+      return;
+    }
+
+    setStatus("Quoting bridge fee…");
+    setBusy("deposit", "Quoting fee…");
+    const shares = await vaultRead.previewDeposit(amount);
+    const minShares = (shares * (10_000n - DEPOSIT_TOLERANCE_BPS)) / 10_000n;
+    const { outer } = buildSpokeSend(amount, minShares);
+    const fee = await spokeAssetWrite.quoteSend(outer, false);
+
+    const nativeBal = await spokeReadProvider.getBalance(account);
+    if (nativeBal < fee.nativeFee) {
+      setStatus(
+        `Need ${Number(ethers.formatUnits(fee.nativeFee, 18)).toFixed(6)} ${SPOKE.nativeSymbol} ` +
+        `for the LayerZero fee. Your wallet has ${Number(ethers.formatUnits(nativeBal, 18)).toFixed(6)}.`,
+        "error"
+      );
+      return;
+    }
+
+    setStatus(`Sending via LayerZero (fee ${Number(ethers.formatUnits(fee.nativeFee, 18)).toFixed(6)} ${SPOKE.nativeSymbol})…`);
+    setBusy("deposit", "Sending…");
+    // `fee` is the frozen ethers Result returned by `quoteSend`; passing it straight to `send`
+    // trips ethers v6's tuple normaliser with "Cannot assign to read only property '0'". Copy
+    // to a plain object literal so encoding writes into fresh storage.
+    const feeArg = { nativeFee: fee.nativeFee, lzTokenFee: fee.lzTokenFee };
+    const tx = await spokeAssetWrite.send(outer, feeArg, account, { value: fee.nativeFee });
+    const receipt = await tx.wait();
+
+    setStatus(
+      `Sent from ${SPOKE.name}. Shares land as tFXRP on Coston2 in ~1 minute — both legs traceable on LayerZero Scan.`,
+      "ok",
+    );
+    // The tx hash the wallet just gave us is only the outer send; the compose leg lands on Coston2
+    // under the same GUID, so send both to LayerZero Scan rather than the spoke's own explorer.
+    track.classList.remove("is-hidden");
+    track.innerHTML =
+      `Track on <a href="${LZ_SCAN}/tx/${receipt.hash}" target="_blank" rel="noopener noreferrer">LayerZero Scan ↗</a> ` +
+      `· <a href="${SPOKE.explorer}/tx/${receipt.hash}" target="_blank" rel="noopener noreferrer">spoke tx ↗</a>`;
+    $("amount").value = "";
+    await refresh();
+  } catch (err) {
+    setStatus(cleanError(err), "error");
+  } finally {
     setBusy("deposit", null);
     renderReceive();
   }
@@ -887,11 +1282,17 @@ let nextEligibleAt = null; // unix seconds, or 0 when the vault has never rebala
 
 function renderNextEligible() {
   const el = $("next-eligible");
-  if (nextEligibleAt === null) { el.textContent = "—"; return; }
-  const left = nextEligibleAt - Math.floor(Date.now() / 1000);
-  if (left <= 0) { el.textContent = "now"; return; }
-  const m = Math.floor(left / 60);
-  el.textContent = `${m}:${String(left % 60).padStart(2, "0")}`;
+  const strat = $("strategy-next");
+  const text = nextEligibleAt === null
+    ? "—"
+    : (() => {
+        const left = nextEligibleAt - Math.floor(Date.now() / 1000);
+        if (left <= 0) return "now";
+        const m = Math.floor(left / 60);
+        return `${m}:${String(left % 60).padStart(2, "0")}`;
+      })();
+  if (el) el.textContent = text;
+  if (strat) strat.textContent = text;
 }
 
 function setPill(text, kind = "muted") {
@@ -945,27 +1346,58 @@ async function boot() {
   for (const id of ["tab-deposit", "tab-withdraw"]) {
     $(id).addEventListener("click", (e) => setMode(e.currentTarget.dataset.mode));
   }
+  // The source picker chooses which chain the deposit tab signs on. Both buttons carry
+  // data-source so the handler stays symmetric even if a third route is ever added.
+  for (const id of ["source-hub", "source-spoke"]) {
+    const el = $(id);
+    if (el) el.addEventListener("click", (e) => setSource(e.currentTarget.dataset.source));
+  }
   $("amount").addEventListener("input", renderReceive);
 
   // Paints the panel from `mode` once at load so its labels are authored in one place, rather than
   // starting on the markup's wording and flipping to this on the first refresh.
   setMode("deposit");
 
-  // Resolve whatever the query string did not supply. Both keys live in the same file, so this runs
-  // when either is missing: a `?vault=` override should not also cost the page its autopilot URL.
-  if (!VAULT_ADDRESS || !AUTOPILOT_URL) {
-    try {
-      // `cache: "no-store"` matters: this file changes on every redeploy, and a cached copy
-      // silently points the whole page at a dead address — which then surfaces as an empty vault
-      // rather than as an error, because the old contract still exists and still answers.
-      const res = await fetch("./deployments.json", { cache: "no-store" });
-      if (res.ok) {
-        const cfg = await res.json();
-        VAULT_ADDRESS ||= cfg.vault || "";
-        AUTOPILOT_URL ||= cfg.autopilot || "";
+  // Resolve whatever the query string did not supply. Everything spoke-related lives in the same
+  // file — a `?vault=` override should not also cost the page its autopilot URL, its composer,
+  // or its spoke config.
+  let cfg = null;
+  try {
+    // `cache: "no-store"` matters: this file changes on every redeploy, and a cached copy
+    // silently points the whole page at a dead address — which then surfaces as an empty vault
+    // rather than as an error, because the old contract still exists and still answers.
+    const res = await fetch("./deployments.json", { cache: "no-store" });
+    if (res.ok) cfg = await res.json();
+  } catch { /* not deployed yet — the page still renders and explains itself */ }
+
+  if (cfg) {
+    VAULT_ADDRESS ||= cfg.vault || "";
+    AUTOPILOT_URL ||= cfg.autopilot || "";
+    COMPOSER_ADDRESS = cfg.composer || "";
+    HUB_EID = cfg.hubEid || HUB_EID;
+    LZ_SCAN = cfg.lzScan || LZ_SCAN;
+    HUB_EXPLORER = cfg.explorer || HUB_EXPLORER;
+    // The spoke block is optional. If present, wire a read-only provider now so the funding
+    // panel can quote Base Sepolia balances even before the wallet ever leaves Coston2, and the
+    // fee row can render without waiting on a connection.
+    if (cfg.spoke && cfg.spoke.assetOFT && cfg.spoke.rpc) {
+      SPOKE = cfg.spoke;
+      try {
+        spokeReadProvider = new ethers.JsonRpcProvider(SPOKE.rpc);
+        spokeAssetRead = new ethers.Contract(SPOKE.assetOFT, OFT_ABI, spokeReadProvider);
+      } catch {
+        // Bad RPC — degrade to hub-only cleanly rather than throwing during boot.
+        spokeReadProvider = null;
+        spokeAssetRead = null;
       }
-    } catch { /* not deployed yet — the page still renders and explains itself */ }
+    }
   }
+
+  // If sessionStorage picked "spoke" from a prior visit but this deployment has no spoke, fall
+  // back to the hub. Then apply the source once, so every label is authored in setSource() rather
+  // than by the initial markup.
+  if (source === "spoke" && !SPOKE) source = "hub";
+  setSource(source);
 
   if (!VAULT_ADDRESS) {
     setStatus("No vault configured. Deploy, then pass ?vault=0x… or write ui/deployments.json.");
@@ -978,6 +1410,30 @@ async function boot() {
   await refresh();
   setInterval(refresh, 15000);
 
+  // Silent reconnect. `chainChanged` reloads the page (to reset per-chain caches cleanly),
+  // which drops account/signer/provider — so an accepted chain switch would otherwise leave
+  // the user staring at a "Connect wallet" button they had already used. `eth_accounts` is
+  // the popup-free variant of `eth_requestAccounts`, returning the authorised address if the
+  // site is still allowed and an empty array otherwise. Nothing prompts.
+  try {
+    if (window.ethereum) {
+      const accounts = await window.ethereum.request({ method: "eth_accounts" });
+      if (accounts && accounts.length > 0) {
+        provider = new ethers.BrowserProvider(window.ethereum);
+        signer = await provider.getSigner();
+        account = await signer.getAddress();
+        $("connect").textContent = shortAddr(account);
+        const net = await provider.getNetwork();
+        const nid = Number(net.chainId);
+        const label = nid === 114 ? "Coston2" : (SPOKE && nid === SPOKE.chainId ? SPOKE.name : `chain ${nid}`);
+        $("network-pill").textContent = label;
+        $("network-pill").className = "pill pill-good";
+        $("copy-address").disabled = false;
+        if (await wire()) await refresh();
+      }
+    }
+  } catch { /* silent — the manual Connect button remains as a fallback */ }
+
   // The countdown ticks on its own second, independent of the 15s chain poll, so it reads as a
   // clock rather than as a number that lurches. `refresh()` only moves its target.
   setInterval(renderNextEligible, 1000);
@@ -989,4 +1445,312 @@ async function boot() {
   window.ethereum?.on?.("chainChanged", () => location.reload());
 }
 
+// ── router ──────────────────────────────────────────────────
+//
+// Four real routes — /vault, /strategy, /activity, /documentation — served by an SPA fallback
+// (serve.json rewrites all four to index.html). The router intercepts anchor clicks with
+// data-route to avoid a full page load, but the anchors' hrefs are still the real routes, so
+// middle-click / cmd-click / copied links all land correctly.
+//
+// The page views live in the same DOM (single shell) and toggle via `hidden`, so app.js's read
+// pipeline works unchanged — refresh() writes to whichever IDs exist and no-ops on the rest.
+
+const ROUTES = new Set(["vault", "strategy", "activity", "documentation"]);
+
+function currentRoute() {
+  const seg = location.pathname.replace(/^\/+/, "").split("/")[0];
+  return ROUTES.has(seg) ? seg : "vault";
+}
+
+function showRoute(name) {
+  document.body.dataset.page = name;
+  for (const view of document.querySelectorAll("[data-page-view]")) {
+    view.hidden = view.dataset.pageView !== name;
+  }
+  for (const a of document.querySelectorAll("a[data-route]")) {
+    a.classList.toggle("is-active", a.dataset.route === name);
+  }
+  // Close the mobile menu on route change — leaving it open after a jump makes the next page's
+  // content invisible on small screens.
+  const mob = $("mobile-nav");
+  if (mob) mob.hidden = true;
+  const tog = $("nav-toggle");
+  if (tog) tog.setAttribute("aria-expanded", "false");
+  window.scrollTo({ top: 0, behavior: "auto" });
+  if (name === "activity") loadActivity().catch(() => {});
+}
+
+function navigate(name, push = true) {
+  if (!ROUTES.has(name)) name = "vault";
+  const path = "/" + name;
+  if (push && location.pathname !== path) history.pushState({}, "", path);
+  showRoute(name);
+}
+
+function initRouter() {
+  for (const a of document.querySelectorAll("a[data-route]")) {
+    a.addEventListener("click", (e) => {
+      // Modifier keys / non-left-click should behave like a normal link: open in a new tab, copy,
+      // save, etc. Only plain clicks are intercepted.
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      navigate(a.dataset.route);
+    });
+  }
+  window.addEventListener("popstate", () => showRoute(currentRoute()));
+
+  const toggle = $("nav-toggle");
+  const mob = $("mobile-nav");
+  if (toggle && mob) {
+    toggle.addEventListener("click", () => {
+      const open = mob.hidden;
+      mob.hidden = !open;
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+
+  showRoute(currentRoute());
+}
+
+// ── activity ────────────────────────────────────────────────
+//
+// Reads Rebalanced / RebalanceRequested from the vault, and Deposit / Withdraw from the ERC-4626
+// surface. All values come from event logs — no off-chain indexer. A block window is used because
+// a full `fromBlock: 0` query on a public RPC times out on Coston2.
+
+const ACTIVITY_ABI = [
+  "event Rebalanced(uint256 indexed nonce, bytes32 indexed signalHash, uint256 totalBefore, uint256 totalAfter, uint256 turnoverBps)",
+  "event RebalanceRequested(uint256 indexed nonce, uint256 totalAssets, uint64 timestamp)",
+  "event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares)",
+  "event Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares)",
+];
+
+// The Coston2 public RPC caps eth_getLogs at 30 blocks — unusable for a timeline that spans
+// the vault's lifetime. Blockscout's `?module=logs&action=getLogs` returns the whole history
+// in one call, still keyed off the same on-chain data, so nothing about the "read the chain
+// directly" story changes — we just query a Coston2 explorer that has already scanned it.
+const BLOCKSCOUT_API = "https://coston2-explorer.flare.network/api";
+let activityFilter = "all";
+let activityRows = [];
+let activityLoading = false;
+
+function activityIcon(kind) {
+  switch (kind) {
+    case "deposit": return "↓";
+    case "withdraw": return "↑";
+    case "rebalance": return "↻";
+    case "request": return "•";
+    default: return "·";
+  }
+}
+
+function renderActivity() {
+  const list = $("activity-list");
+  const count = $("activity-count");
+  if (!list) return;
+  const shown = activityRows.filter(r => activityFilter === "all" || r.kind === activityFilter);
+
+  if (count) {
+    if (activityLoading && shown.length === 0) count.textContent = "loading";
+    else count.textContent = `${shown.length} event${shown.length === 1 ? "" : "s"}`;
+  }
+
+  if (activityLoading && shown.length === 0) {
+    list.innerHTML = `<p class="empty">Loading events from Coston2…</p>`;
+    return;
+  }
+  if (shown.length === 0) {
+    list.innerHTML = `<p class="empty">No matching events in the last ${ACTIVITY_BLOCK_WINDOW.toLocaleString()} blocks.</p>`;
+    return;
+  }
+
+  // Group by day so a long list scans as a timeline rather than a wall of rows.
+  const groups = new Map();
+  for (const r of shown) {
+    const day = r.ts ? new Date(r.ts * 1000).toDateString() : "unknown date";
+    if (!groups.has(day)) groups.set(day, []);
+    groups.get(day).push(r);
+  }
+
+  list.innerHTML = [...groups.entries()].map(([day, rows]) => `
+    <div class="activity-day">
+      <div class="activity-day-head">
+        <span class="activity-day-label">${day}</span>
+        <span class="activity-day-count">${rows.length} event${rows.length === 1 ? "" : "s"}</span>
+      </div>
+      <div class="activity-day-rows">
+        ${rows.map(r => `
+          <article class="activity-card" data-kind="${r.kind}">
+            <header class="activity-card-head">
+              <span class="activity-icon" aria-hidden="true">${activityIcon(r.kind)}</span>
+              <span class="activity-type">${r.label}</span>
+              <span class="activity-status pill ${r.statusKind}">${r.status}</span>
+            </header>
+
+            <div class="activity-card-body">
+              ${r.parts.map(p => `
+                <div class="activity-part">
+                  <span class="activity-part-label">${p.label}</span>
+                  <span class="activity-part-value mono">${p.value}</span>
+                </div>
+              `).join("")}
+            </div>
+
+            <footer class="activity-card-foot">
+              <span class="activity-when" title="${r.iso || ""}">${r.time}</span>
+              <span class="activity-sep" aria-hidden="true">·</span>
+              <span class="mono activity-block">block ${r.block.toLocaleString()}</span>
+              <span class="activity-sep" aria-hidden="true">·</span>
+              <a href="${HUB_EXPLORER}/tx/${r.tx}" target="_blank" rel="noopener noreferrer"
+                 class="mono activity-tx" title="${r.tx}">
+                ${r.tx.slice(0, 10)}…${r.tx.slice(-6)}
+                <span class="ext" aria-hidden="true">↗</span>
+              </a>
+            </footer>
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+}
+
+async function loadActivity() {
+  if (activityLoading) return;
+  // The activity route can be visited before wire() has resolved vaultRead. Wait briefly
+  // rather than silently bailing — otherwise the "Loading events…" placeholder never clears.
+  if (!vaultRead) {
+    for (let i = 0; i < 30 && !vaultRead; i++) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (!vaultRead) {
+      const list = $("activity-list");
+      if (list) list.innerHTML = `<p class="empty">Vault not yet configured. Check back in a moment.</p>`;
+      return;
+    }
+  }
+  activityLoading = true;
+  renderActivity();
+
+  const list = $("activity-list");
+  try {
+    const iface = new ethers.Interface(ACTIVITY_ABI);
+    const topics = {
+      Deposit:            iface.getEvent("Deposit").topicHash,
+      Withdraw:           iface.getEvent("Withdraw").topicHash,
+      Rebalanced:         iface.getEvent("Rebalanced").topicHash,
+      RebalanceRequested: iface.getEvent("RebalanceRequested").topicHash,
+    };
+
+    // One HTTP call per event type. Blockscout returns { status, message, result[] } where each
+    // result carries topics, data, timeStamp, blockNumber, transactionHash — everything the row
+    // needs, no per-block RPC follow-up.
+    async function bscoutLogs(topic0) {
+      const url = `${BLOCKSCOUT_API}?module=logs&action=getLogs`
+        + `&fromBlock=0&toBlock=latest`
+        + `&address=${VAULT_ADDRESS}`
+        + `&topic0=${topic0}`;
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`blockscout ${res.status}`);
+      const body = await res.json();
+      // Blockscout returns "No logs found" as status:"0"; treat that as [] rather than an error.
+      if (body.status !== "1") return [];
+      return body.result || [];
+    }
+
+    const [rawDeposits, rawWithdraws, rawRebalances, rawRequests] = await Promise.all([
+      bscoutLogs(topics.Deposit),
+      bscoutLogs(topics.Withdraw),
+      bscoutLogs(topics.Rebalanced),
+      bscoutLogs(topics.RebalanceRequested),
+    ]);
+
+    function decode(raw, name) {
+      return raw.map(log => {
+        try {
+          // Blockscout always returns a 4-element `topics` array, padding unused slots with
+          // null. Ethers rejects nulls as `invalid BytesLike value`, so trim before decoding.
+          const topics = log.topics.filter(t => t !== null && t !== undefined);
+          const parsed = iface.parseLog({ topics, data: log.data });
+          return { log, parsed, name };
+        } catch { return null; }
+      }).filter(Boolean);
+    }
+
+    const events = [
+      ...decode(rawDeposits, "Deposit"),
+      ...decode(rawWithdraws, "Withdraw"),
+      ...decode(rawRebalances, "Rebalanced"),
+      ...decode(rawRequests, "RebalanceRequested"),
+    ];
+
+    activityRows = events.map(({ log, parsed, name }) => {
+      // Blockscout carries hex-prefixed strings for numeric fields.
+      const ts = Number(BigInt(log.timeStamp));
+      const block = Number(BigInt(log.blockNumber));
+      const iso = ts ? new Date(ts * 1000).toISOString() : "";
+      const time = timeAgo(ts);
+      const base = {
+        tx: log.transactionHash, block,
+        ts, iso, time,
+        statusKind: "pill-good", status: "confirmed",
+      };
+      switch (name) {
+        case "Deposit":
+          return { ...base, kind: "deposit", label: "Deposit", parts: [
+            { label: "Assets in",     value: `${fmtUnits(parsed.args.assets)} FXRP` },
+            { label: "Shares minted", value: `+${fmtUnits(parsed.args.shares, assetDecimals + 3, 4)} tFXRP` },
+          ]};
+        case "Withdraw":
+          return { ...base, kind: "withdraw", label: "Withdrawal", parts: [
+            { label: "Assets out",    value: `${fmtUnits(parsed.args.assets)} FXRP` },
+            { label: "Shares burned", value: `−${fmtUnits(parsed.args.shares, assetDecimals + 3, 4)} tFXRP` },
+          ]};
+        case "Rebalanced": {
+          const before = parsed.args.totalBefore;
+          const after = parsed.args.totalAfter;
+          const delta = after - before;
+          const deltaStr = (delta >= 0n ? "+" : "−") + fmtUnits(delta < 0n ? -delta : delta);
+          return { ...base, kind: "rebalance", label: `Rebalance #${parsed.args.nonce}`, parts: [
+            { label: "Total before", value: `${fmtUnits(before)} FXRP` },
+            { label: "Total after",  value: `${fmtUnits(after)} FXRP` },
+            { label: "Delta",        value: `${deltaStr} FXRP` },
+            { label: "Turnover",     value: `${(Number(parsed.args.turnoverBps) / 100).toFixed(2)}%` },
+          ]};
+        }
+        case "RebalanceRequested":
+          return { ...base, kind: "request", label: `Rebalance requested #${parsed.args.nonce}`,
+            statusKind: "pill-muted", status: "requested", parts: [
+              { label: "Total at request", value: `${fmtUnits(parsed.args.totalAssets)} FXRP` },
+            ]};
+        default:
+          return null;
+      }
+    }).filter(Boolean).sort((a, b) => b.block - a.block);
+  } catch (err) {
+    console.warn("activity load failed", err);
+    activityRows = [];
+    if (list) list.innerHTML = `<p class="empty">Failed to load events: ${cleanError(err)}</p>`;
+    activityLoading = false;
+    return;
+  }
+  activityLoading = false;
+  renderActivity();
+}
+
+function initActivityControls() {
+  for (const btn of document.querySelectorAll(".filter-btn")) {
+    btn.addEventListener("click", () => {
+      activityFilter = btn.dataset.filter;
+      for (const b of document.querySelectorAll(".filter-btn")) {
+        b.classList.toggle("is-active", b === btn);
+      }
+      renderActivity();
+    });
+  }
+  const refresh = $("activity-refresh");
+  if (refresh) refresh.addEventListener("click", () => loadActivity().catch(() => {}));
+}
+
+initRouter();
+initActivityControls();
 boot();

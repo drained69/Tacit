@@ -1,8 +1,12 @@
 {
   "network": "coston2",
   "chainId": 114,
+  "hubEid": 40294,
   "vault": "0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed",
   "asset": "0x0b6A3645c240605887a5532109323A3E12273dc7",
+  "assetOFT": "0xA11c466cbebB86f865e2Ccea5F0f273b078E30C7",
+  "shareOFT": "0x82E4C657aaE87151243AE439eC8c33210AE30415",
+  "composer": "0xEE6fF9E8FD639E15d9a077c2aceF0e8Ba16A4844",
   "venues": [
     { "name": "Venue A (8% APR)",  "address": "0xeAa13D09e5d501B108c68c2c158eA23e8f64f0e2", "liquidOnDemand": true },
     { "name": "Venue B (15% APR)", "address": "0x087D3C7d91af876078863b46ed835B5D0142D66a", "liquidOnDemand": true },
@@ -11,5 +15,18 @@
   ],
   "teeIdentity": "0x89E6C7AD562cf6e664aDBE425E9e323F9A8a3bC5",
   "autopilot": "",
-  "explorer": "https://coston2-explorer.flare.network"
+  "explorer": "https://coston2-explorer.flare.network",
+  "lzScan": "https://testnet.layerzeroscan.com",
+  "spoke": {
+    "name": "Base Sepolia",
+    "chainId": 84532,
+    "eid": 40245,
+    "rpc": "https://sepolia.base.org",
+    "explorer": "https://base-sepolia.blockscout.com",
+    "faucet": "https://docs.base.org/base-chain/tools/network-faucets",
+    "nativeSymbol": "ETH",
+    "nativeName": "Sepolia Ether",
+    "assetOFT": "0x07aC2E99AFeE725459BAbaD955aF17d25b28a1c3",
+    "shareOFT": "0x2E92272A900d6979EFaD4D63B2D59c9077718BD7"
+  }
 }

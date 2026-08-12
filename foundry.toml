@@ -22,9 +22,13 @@ remappings = [
 
 [rpc_endpoints]
 coston2 = "https://coston2-api.flare.network/ext/C/rpc"
+# Spoke chain for the OVault layer. Public Base Sepolia RPCs rate-limit hard enough to break a
+# multi-transaction broadcast, so this reads from the environment rather than hardcoding one.
+base_sepolia = "${BASE_SEPOLIA_URL}"
 
 [etherscan]
 coston2 = { key = "any", url = "https://coston2-explorer.flare.network/api", chain = 114 }
+base_sepolia = { key = "any", url = "https://base-sepolia.blockscout.com/api", chain = 84532 }
 
 [invariant]
 runs = 128

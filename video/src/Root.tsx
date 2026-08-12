@@ -12,6 +12,7 @@ import { SceneArchitecture, SceneInvariants, SceneLifecycle } from "./scenes/Sys
 import { SceneAttack, SceneFirelight, SceneFuzz, SceneResidual } from "./scenes/Proof";
 import { SceneCrossChain, SceneCrossChainSafety } from "./scenes/CrossChain";
 import { SceneClosing, SceneLive, ScenePrimitives, SceneRealOrSim } from "./scenes/Real";
+import { ThanksCard } from "./scenes/ThanksCard";
 
 /** Playback order. Each entry pairs a scene component with its frame budget in
  *  theme.ts, so pacing is retuned in one place and never drifts from the
@@ -67,13 +68,27 @@ export const TacitDemo: React.FC = () => (
   </AbsoluteFill>
 );
 
+/* Two compositions in this project. TacitDemo is the timeline that renders to
+ * out/tacit-demo.mp4. ThanksCard is a standalone 1-frame still — deliberately
+ * NOT added to the timeline, per the request; it exists so `remotion still` can
+ * export it as a PNG for use in slides, thumbnails, or after a screen recording. */
 export const RemotionRoot: React.FC = () => (
-  <Composition
-    id="TacitDemo"
-    component={TacitDemo}
-    durationInFrames={TOTAL}
-    fps={FPS}
-    width={1920}
-    height={1080}
-  />
+  <>
+    <Composition
+      id="TacitDemo"
+      component={TacitDemo}
+      durationInFrames={TOTAL}
+      fps={FPS}
+      width={1920}
+      height={1080}
+    />
+    <Composition
+      id="ThanksCard"
+      component={ThanksCard}
+      durationInFrames={1}
+      fps={FPS}
+      width={1920}
+      height={1080}
+    />
+  </>
 );

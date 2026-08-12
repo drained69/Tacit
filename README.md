@@ -772,3 +772,12 @@ The contribution is the **trust boundary between a confidential agent and a publ
 alongside it, an empirical map of what Web2Json can actually do and what happens when you point a
 vault at a real third-party venue instead of a mock. Both are documented above rather than left as
 folklore.
+
+
+
+
+
+
+SIMULATED_TEE=true && go run .
+
+

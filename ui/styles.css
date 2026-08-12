@@ -204,6 +204,49 @@ a { color: inherit; }
 }
 .nav a:hover { color: var(--text); background: var(--panel-2); }
 
+/* Route-aware active state. Underlined with the accent rather than filled with a background —
+   filled reads like a pressed button, while a nav item is a location indicator. */
+.nav a.is-active {
+  color: var(--text);
+  background: transparent;
+  position: relative;
+}
+.nav a.is-active::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  right: 11px;
+  bottom: -6px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+/* Mobile navigation. The .nav-toggle button lives in the topbar-right group but is invisible
+   above the mobile breakpoint. The sheet under the topbar is a flat vertical list — no
+   overlay/backdrop, so the app underneath is still legible while it is open. */
+.nav-toggle { display: none; }
+
+.nav-mobile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3) var(--sp-5) var(--sp-4);
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.nav-mobile[hidden] { display: none; }
+.nav-mobile a {
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  font-size: var(--t-body);
+  color: var(--muted);
+  text-decoration: none;
+}
+.nav-mobile a:hover,
+.nav-mobile a.is-active { color: var(--text); background: var(--panel-2); }
+.nav-mobile a.is-active { box-shadow: inset 3px 0 0 var(--accent); }
+
 .ext { font-size: 9px; margin-left: 3px; vertical-align: 1px; opacity: 0.65; }
 
 .topbar-right {
@@ -414,6 +457,62 @@ main {
   border-color: var(--line-strong);
 }
 
+/* ── deposit source ────────────────────────────────────────────
+   Two chains reach the same vault, so this picks a route for the panel below rather than swapping
+   the panel — which is why it looks like two cards and not like the tabs above it. Tabs are a
+   segmented control sunk into a recessed track; these are raised, selectable objects. Reading them
+   as the same control would imply the panel changes, and it does not.
+
+   Selection is carried by three simultaneous shifts — surface, border, and text colour — because
+   crimson is spoken for. A colour that means "click me" cannot also mean "you are on Base Sepolia". */
+
+.source { margin-bottom: var(--sp-4); }
+
+.source-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.source-label { font-size: var(--t-body); color: var(--muted); }
+.source-aux { font-size: var(--t-small); color: var(--dim); }
+
+.source-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+}
+
+.source-opt {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.16s var(--ease), border-color 0.16s var(--ease);
+}
+
+.source-opt-name { font-size: var(--t-body); font-weight: 500; color: var(--muted); }
+.source-opt-sub { font-size: var(--t-micro); color: var(--dim); }
+
+.source-opt:hover { border-color: var(--line-strong); }
+.source-opt:hover .source-opt-name { color: var(--text); }
+
+.source-opt.is-active {
+  background: var(--panel-3);
+  border-color: var(--line-strong);
+}
+.source-opt.is-active .source-opt-name { color: var(--text); }
+.source-opt.is-active .source-opt-sub { color: var(--muted); }
+
 /* ── forms ─────────────────────────────────────────────────── */
 
 .field { margin-bottom: var(--sp-3); }
@@ -585,6 +684,19 @@ input[type="text"]::placeholder { color: #3d3d49; }
   line-height: 1.5;
 }
 .action-note em { font-style: normal; color: var(--muted); }
+
+/* The cross-chain receipt line. The wallet's own confirmation only proves the leg the user signed;
+   the deposit itself lands on another chain a minute later. So this link is not decoration, it is
+   the only place the second half can be observed — and it is underlined like the reference it is. */
+.action-note-track { color: var(--muted); }
+.action-note-track a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
+}
+.action-note-track a:hover { text-decoration-color: var(--muted); }
+.action-note-track .mono { font-size: var(--t-micro); color: var(--dim); }
 
 /* ── pills ─────────────────────────────────────────────────── */
 
@@ -978,6 +1090,416 @@ summary:hover .chev { border-color: var(--text); }
 }
 .trust-foot strong { color: var(--text); font-weight: 600; }
 
+/* ── page structure (multi-route) ──────────────────────────── */
+
+/* Each route renders exactly one .page section. The router toggles `hidden`; `!important` on
+   the hidden rule is defensive — a route flip must beat any layout display value on .page. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.page[hidden] { display: none !important; }
+.page-footer { padding-top: var(--sp-3); }
+
+/* The Vault page uses a single-column action panel — its right-hand card was moved to the
+   Strategy page. This override keeps the deposit card at a comfortable reading width. */
+/* Vault dashboard: deposit form on the left (task), allocation on the right (status).
+   Deposit column is a fixed comfortable width; the allocation flexes to fill the rest. */
+.vault-columns {
+  grid-template-columns: minmax(0, 480px) minmax(0, 1fr) !important;
+  align-items: start;
+}
+.vault-columns > .card { min-width: 0; }
+
+/* ── numbered form steps ───────────────────────────────────────
+   Each step reads as its own labelled block. Numbers on the left carry the sequence; the label
+   pair on the right carries the meaning. A subtle divider between steps keeps the block boundaries
+   visible without adding a border box per step (which would nest cards inside a card). */
+.form-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0 var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.form-step:last-of-type { border-bottom: none; }
+
+.step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  flex: none;
+}
+.step-labels {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.step-title {
+  font-size: var(--t-body);
+  color: var(--text);
+  font-weight: 500;
+}
+.step-title label { font: inherit; color: inherit; cursor: pointer; }
+.step-sub {
+  font-size: var(--t-small);
+  color: var(--muted);
+  text-align: right;
+}
+.step-sub .mono { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* The source picker and input row live directly under a step head, so a small indent aligns
+   them under the step title rather than the number bubble. */
+.form-step .source-opts,
+.form-step .input-row {
+  margin-left: calc(22px + var(--sp-3));
+}
+
+/* ── quote receipt ─────────────────────────────────────────────
+   The output of steps 1 + 2 combined. Reads as a receipt — labels left, values right, share
+   price and bridge fee de-emphasised beneath the headline "You receive" line. */
+.quote {
+  margin-top: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.quote-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--t-tiny);
+  color: var(--dim);
+}
+.quote-row .mono { font-variant-numeric: tabular-nums; color: var(--muted); }
+.quote-row-lead {
+  font-size: var(--t-body);
+  padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line);
+  margin-bottom: 2px;
+}
+.quote-label { color: var(--muted); }
+.quote-value { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ── guardrails (rail cards, WHAT / WHY / CURRENT / STATUS) ── */
+
+.rail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin: var(--sp-5) 0 var(--sp-4);
+}
+
+.rail {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.rail[open] { border-color: var(--line-strong); }
+
+.rail-head {
+  display: grid;
+  grid-template-columns: 20px 1fr auto auto 16px;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.rail-head::-webkit-details-marker { display: none; }
+.rail-icon { color: var(--accent); font-size: 14px; text-align: center; }
+.rail-name { font-size: var(--t-body); font-weight: 600; color: var(--text); }
+.rail-value {
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  color: var(--muted);
+  padding: 2px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  min-width: 3.5em;
+  text-align: center;
+}
+.rail-status { justify-self: end; }
+.rail .chev {
+  width: 8px; height: 8px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.14s var(--ease);
+}
+.rail[open] .chev { transform: rotate(-135deg); }
+
+.rail-body {
+  padding: 0 var(--sp-4) var(--sp-4);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.rail-body p {
+  margin: var(--sp-3) 0 0;
+  font-size: var(--t-small);
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 72ch;
+}
+.rail-body strong { color: var(--text); font-weight: 600; }
+
+/* ── documentation ─────────────────────────────────────────── */
+
+.docs-flow-title { margin: 0 0 var(--sp-1); }
+
+.docs-sections {
+  margin: var(--sp-6) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.docs-section {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.docs-section[open] { border-color: var(--line-strong); }
+.docs-section > summary {
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.docs-section > summary::-webkit-details-marker { display: none; }
+.docs-section .docs-h { font-size: var(--t-body); font-weight: 600; color: var(--text); }
+.docs-section .chev {
+  width: 8px; height: 8px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.14s var(--ease);
+}
+.docs-section[open] > summary .chev { transform: rotate(-135deg); }
+
+.docs-body {
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+.docs-body p {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--t-small);
+  color: var(--muted);
+  line-height: 1.65;
+  max-width: 76ch;
+}
+.docs-body p:last-child { margin-bottom: 0; }
+.docs-body strong { color: var(--text); font-weight: 600; }
+.docs-body em { color: var(--text); font-style: normal; font-weight: 500; }
+.docs-body a { color: var(--accent); text-decoration: none; }
+.docs-body a:hover { color: var(--accent-hi); text-decoration: underline; }
+.docs-body code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+}
+.docs-list {
+  margin: 0;
+  padding: 0 0 0 var(--sp-4);
+  list-style: disc;
+}
+.docs-list li {
+  font-size: var(--t-small);
+  color: var(--muted);
+  line-height: 1.65;
+  margin-bottom: var(--sp-2);
+  max-width: 76ch;
+}
+
+.docs-links {
+  margin: var(--sp-6) 0 0;
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5);
+  font-size: var(--t-small);
+}
+.docs-links a { color: var(--muted); text-decoration: none; }
+.docs-links a:hover { color: var(--text); text-decoration: underline; }
+.docs-links .ext { color: var(--dim); margin-left: 3px; }
+
+/* ── activity ──────────────────────────────────────────────── */
+
+.activity-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.filter-group {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  gap: 2px;
+}
+.filter-btn {
+  padding: 5px 10px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--t-small);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: color 0.14s var(--ease), background 0.14s var(--ease);
+}
+.filter-btn:hover { color: var(--text); }
+.filter-btn.is-active { color: var(--text); background: var(--panel); box-shadow: inset 0 -2px 0 var(--accent-dim); }
+
+.activity-list {
+  margin-top: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* Group by day, so a long list reads as a timeline. The heading is a subtle stamp above the
+   day's rows — not a card of its own, because it carries no interaction. */
+.activity-day { display: flex; flex-direction: column; gap: var(--sp-3); }
+.activity-day-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+}
+.activity-day-label {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.activity-day-count {
+  font-size: var(--t-micro);
+  color: var(--dim);
+  font-family: var(--mono);
+}
+.activity-day-rows { display: flex; flex-direction: column; gap: var(--sp-2); }
+
+/* Each event is a small card. Three regions: header (icon + type + status), body (structured
+   parts as a key/value grid), footer (time · block · tx). This turns "0.5 FXRP · +0.4999 tFXRP"
+   from a squashed sentence into two labelled figures the eye can compare across rows. */
+.activity-card {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  transition: border-color 0.14s var(--ease), background 0.14s var(--ease);
+}
+.activity-card:hover { border-color: var(--line-strong); }
+
+.activity-card-head {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.activity-icon {
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+  flex: none;
+}
+.activity-card[data-kind="deposit"] .activity-icon   { color: #58c986; border-color: rgba(88,201,134,0.4); }
+.activity-card[data-kind="withdraw"] .activity-icon  { color: #d67c58; border-color: rgba(214,124,88,0.4); }
+.activity-card[data-kind="rebalance"] .activity-icon { color: var(--accent); border-color: var(--accent-dim); }
+.activity-card[data-kind="request"] .activity-icon   { color: var(--muted); }
+
+.activity-type { font-size: var(--t-body); color: var(--text); font-weight: 500; }
+.activity-status { justify-self: end; }
+
+.activity-card-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.activity-part { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.activity-part-label {
+  font-size: var(--t-micro);
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.activity-part-value {
+  font-size: var(--t-small);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-micro);
+  color: var(--dim);
+  flex-wrap: wrap;
+}
+.activity-card-foot .mono { color: var(--muted); }
+.activity-card-foot a { color: var(--muted); text-decoration: none; }
+.activity-card-foot a:hover { color: var(--text); text-decoration: underline; }
+.activity-sep { color: var(--line-strong); }
+
+/* ── documentation ─────────────────────────────────────────── */
+
 /* ── footer ────────────────────────────────────────────────── */
 
 footer { padding: var(--sp-2) 0 0; }
@@ -997,6 +1519,7 @@ footer a { color: var(--muted); }
 
 @media (max-width: 980px) {
   .columns { grid-template-columns: minmax(0, 1fr); }
+  .vault-columns { grid-template-columns: minmax(0, 1fr) !important; }
   .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-4); }
   .flow-step:nth-child(2)::after { display: none; }
   .alloc-layout { grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); justify-items: stretch; }
@@ -1006,6 +1529,7 @@ footer a { color: var(--muted); }
 @media (max-width: 860px) {
   .nav { display: none; }
   .tagline { display: none; }
+  .nav-toggle { display: inline-flex; }
 }
 
 @media (max-width: 720px) {
@@ -1026,9 +1550,19 @@ footer a { color: var(--muted); }
 
 @media (max-width: 620px) {
   .testnet-strip { font-size: 10.5px; padding: 6px var(--sp-4); text-align: center; }
-  .topbar-inner { padding: var(--sp-3) var(--sp-4); gap: var(--sp-3); }
+  .topbar-inner {
+    padding: var(--sp-3) var(--sp-4);
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
   .network-env { display: none; }
   .network { padding: 5px 9px; }
+  /* On phones the wallet-state pill duplicates whatever the button says (both start out
+     showing "not connected" / "Connect wallet"), and dropping it frees exactly the width the
+     Menu button needs. */
+  #network-pill { display: none; }
+  .btn { padding: 8px 12px; }
+  .btn-primary { padding: 8px 14px; }
 
   /* Below this width the bar column is too narrow to compare against, so the row becomes a
      labelled figure with the bar underneath at full width — still a chart, just stacked. */
@@ -1045,8 +1579,24 @@ footer a { color: var(--muted); }
   .flow { grid-template-columns: minmax(0, 1fr); }
   .flow-step::after { display: none !important; }
 
+  .docs-links { gap: var(--sp-2) var(--sp-4); }
+
+  .rail-head { grid-template-columns: 20px 1fr auto 16px; }
+  .rail-status { display: none; }
+
+  .activity-card-head { grid-template-columns: 24px 1fr; }
+  .activity-status { grid-column: 2; justify-self: start; margin-top: 2px; }
+  .activity-card-body { grid-template-columns: 1fr 1fr; }
+  .activity-controls { width: 100%; justify-content: space-between; }
+
   .funding-balances { grid-template-columns: 1fr; gap: var(--sp-3); }
   .funding-actions .btn { flex: 1 1 auto; text-align: center; justify-content: center; }
+
+  /* Two route cards side by side leaves each too narrow for its second line, and that second line
+     is the substantive half — it says which gas token you pay. Stack rather than truncate. */
+  .source-opts { grid-template-columns: minmax(0, 1fr); }
+  .source-opt { flex-direction: row; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+  .source-head { flex-direction: column; align-items: flex-start; gap: 2px; }
 }
 
 @media (max-width: 460px) {
@@ -1056,6 +1606,40 @@ footer a { color: var(--muted); }
   .brand-name { font-size: var(--t-base); }
   .value-xl { font-size: 23px; }
   .g-note { margin-left: 0; }
+
+  /* The topbar reflows to two rows on phones. The brand + network go first, wallet controls
+     wrap under. Freeing the network from any minimum width keeps the wrap predictable. */
+  .network-text { display: none; }
+  .network { padding: 4px 6px; }
+  .topbar-right { flex: 1 1 auto; justify-content: flex-end; }
+  main { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+  .card, .hero { padding: var(--sp-4) var(--sp-3); }
+
+  /* Numbered form steps stack the labels above the row of controls on phones. Also drop the
+     indent so the picker/input fill the card width. */
+  .step-labels {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .step-sub { text-align: left; }
+  .form-step .source-opts,
+  .form-step .input-row { margin-left: 0; }
+  .source-opts { grid-template-columns: minmax(0, 1fr); }
+
+  /* Rail (guardrail) cards on tiny screens: value pill drops to its own line so the name is
+     never truncated. Chevron goes with it so the row still reads as a summary. */
+  .rail-head {
+    grid-template-columns: 20px 1fr 16px;
+    gap: var(--sp-2);
+  }
+  .rail-value { grid-column: 2 / span 2; grid-row: 2; justify-self: start; margin-top: 4px; }
+  .rail .chev { grid-column: 3; grid-row: 1; }
+
+  /* Docs section summaries need room for wrapping — the chevron shrinks and the padding
+     tightens so long section titles do not overflow. */
+  .docs-section > summary { padding: var(--sp-3); }
+  .docs-body { padding: var(--sp-3); }
 }
 
 /* ── motion & contrast preferences ─────────────────────────── */

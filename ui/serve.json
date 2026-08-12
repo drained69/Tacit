@@ -1,0 +1,18 @@
+{
+  "rewrites": [
+    { "source": "/vault", "destination": "/index.html" },
+    { "source": "/strategy", "destination": "/index.html" },
+    { "source": "/activity", "destination": "/index.html" },
+    { "source": "/documentation", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "**/*.@(js|css|json)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=60, must-revalidate" }]
+    },
+    {
+      "source": "**/*.html",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
+  ]
+}

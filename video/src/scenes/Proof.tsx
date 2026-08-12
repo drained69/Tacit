@@ -45,7 +45,7 @@ export const SceneAttack: React.FC = () => {
                 display: "flex",
                 alignItems: "center",
                 gap: 24,
-                padding: "17px 26px",
+                padding: "13px 26px",
                 borderBottom: `1px solid ${c.line}`,
                 background: `rgba(230,32,88,${flash * 0.1})`,
                 opacity: t,
@@ -94,7 +94,7 @@ export const SceneAttack: React.FC = () => {
       </div>
 
       <Reveal delay={300}>
-        <div style={{ display: "flex", gap: 20, marginTop: 24 }}>
+        <div style={{ display: "flex", gap: 20, marginTop: 20 }}>
           <Panel accent={c.good} style={{ flex: 1, padding: "24px 28px" }}>
             <div style={{ fontSize: 28, fontWeight: 600, marginBottom: 10 }}>
               Eight attempts, eight reverts

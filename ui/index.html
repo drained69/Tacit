@@ -8,9 +8,9 @@
 <link rel="stylesheet" href="styles.css" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>" />
 </head>
-<body>
+<body data-page="vault">
 
-<a class="skip-link" href="#vault">Skip to vault</a>
+<a class="skip-link" href="#page-main">Skip to content</a>
 
 <!-- Testnet strip. Sits above the header so it is unmissable on first paint, but is a single
      quiet line rather than a coloured slab, because it is context, not an error. -->
@@ -21,7 +21,7 @@
 
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="#vault">
+    <a class="brand" href="/vault" data-route="vault">
       <span class="mark" aria-hidden="true">◆</span>
       <span class="brand-text">
         <span class="brand-name">Tacit</span>
@@ -29,246 +29,416 @@
       </span>
     </a>
 
-    <nav class="nav" aria-label="Sections">
-      <a href="#vault">Vault</a>
-      <a href="#strategy">Strategy</a>
-      <a href="#activity">Activity</a>
-      <!-- In-page, like the three above it. There is no published docs site to link out to, and a
-           nav item pointing at a URL that may not resolve is worse than one that lands on the
-           page's own explanation of the design. -->
-      <a href="#docs">Documentation</a>
+    <!-- Real routes. Each anchor's href IS the route; the router only intercepts to avoid a full
+         page load, so a middle-click, cmd-click or copied link all still land on the right page. -->
+    <nav class="nav" aria-label="Pages">
+      <a href="/vault"         data-route="vault">Vault</a>
+      <a href="/strategy"      data-route="strategy">Strategy</a>
+      <a href="/activity"      data-route="activity">Activity</a>
+      <a href="/documentation" data-route="documentation">Documentation</a>
     </nav>
 
     <div class="topbar-right">
       <span class="network" id="network-indicator">
-        <span class="dot dot-good" aria-hidden="true"></span>
+        <span class="dot dot-good" id="network-dot" aria-hidden="true"></span>
         <span class="network-text">
-          <span class="network-name">Coston2</span>
-          <span class="network-env">Testnet</span>
+          <span class="network-name" id="network-name">Coston2</span>
+          <span class="network-env" id="network-env">Vault chain</span>
         </span>
       </span>
       <span id="network-pill" class="pill pill-muted">not connected</span>
       <button id="connect" class="btn btn-primary">Connect wallet</button>
+      <button id="nav-toggle" class="btn btn-ghost btn-sm nav-toggle" aria-expanded="false"
+              aria-controls="mobile-nav" aria-label="Menu">Menu</button>
     </div>
   </div>
+
+  <!-- Mobile nav sheet. Same anchors as the desktop nav — the router binds both, and this one
+       collapses to nothing at desktop widths so no duplicate tab order exists. -->
+  <nav class="nav-mobile" id="mobile-nav" aria-label="Pages (mobile)" hidden>
+    <a href="/vault"         data-route="vault">Vault</a>
+    <a href="/strategy"      data-route="strategy">Strategy</a>
+    <a href="/activity"      data-route="activity">Activity</a>
+    <a href="/documentation" data-route="documentation">Documentation</a>
+  </nav>
 </header>
 
-<main>
+<main id="page-main">
 
-  <!-- ── Hero: vault overview ─────────────────────────────────── -->
-  <section class="hero" id="vault" aria-labelledby="hero-title">
-    <div class="hero-head">
-      <div>
-        <h1 id="hero-title">Tacit FXRP Vault</h1>
-        <p class="hero-sub">Automated FXRP allocation with on-chain guardrails.</p>
-      </div>
-      <!-- Not hardcoded "Strategy active": the vault can sit with no enclave registered, or with one
-           registered that has never rebalanced, and both of those states would be contradicted by a
-           green light. app.js sets the label and the dot from `teeIdentity()` and `lastRebalanceAt`,
-           which refresh() already reads. -->
-      <div class="hero-status">
-        <span class="dot dot-idle" id="hero-dot" aria-hidden="true"></span>
-        <span class="hero-status-text">
-          <strong id="hero-status-label">Checking strategy…</strong>
-          <span class="hero-status-sub">Last rebalance <span id="hero-last-rebalance">—</span></span>
-        </span>
-      </div>
-    </div>
+  <!-- ═══════════════════════════════════════════════════════════════════
+       VAULT PAGE — "Manage my money."
+       Position, deposit/withdraw, and a concise allocation view. All the
+       educational prose about how the strategy works lives on Strategy.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section class="page" data-page-view="vault" aria-labelledby="vault-title">
 
-    <div class="metrics">
-      <div class="metric metric-lead">
-        <span class="label" id="lab-tvl">Total value locked</span>
-        <span class="value value-xl" id="tvl" aria-labelledby="lab-tvl">—</span>
-        <span class="metric-note">Assets held by the vault, across all venues</span>
-      </div>
-      <div class="metric metric-lead">
-        <span class="label" id="lab-pos">Your position</span>
-        <span class="value value-xl" id="your-assets" aria-labelledby="lab-pos">—</span>
-        <span class="metric-note">Current redemption value of your shares</span>
-      </div>
-      <div class="metric">
-        <span class="label" id="lab-price">Share price</span>
-        <span class="value" id="share-price" aria-labelledby="lab-price">—</span>
-        <span class="metric-note">FXRP per share</span>
-      </div>
-      <div class="metric">
-        <span class="label" id="lab-shares">Your shares</span>
-        <span class="value mono" id="your-shares" aria-labelledby="lab-shares">—</span>
-        <span class="metric-note">Vault share token balance</span>
-      </div>
-    </div>
-  </section>
-
-  <div class="columns">
-
-    <!-- ── Deposit / Withdraw ─────────────────────────────────── -->
-    <section class="card panel-action" aria-labelledby="action-title">
-      <h2 id="action-title" class="card-title">Deposit &amp; withdraw</h2>
-
-      <div class="tabs" role="tablist" aria-label="Deposit or withdraw">
-        <button id="tab-deposit" class="tab is-active" role="tab"
-                aria-selected="true" aria-controls="action-panel" data-mode="deposit">Deposit</button>
-        <button id="tab-withdraw" class="tab" role="tab"
-                aria-selected="false" aria-controls="action-panel" data-mode="withdraw">Withdraw</button>
-      </div>
-
-      <div id="action-panel" role="tabpanel" aria-labelledby="tab-deposit" class="action-panel">
-        <div class="field">
-          <div class="field-head">
-            <label for="amount">Amount</label>
-            <span class="field-aux">
-              <span id="available-label">Available</span>
-              <span class="mono" id="available-amount">—</span>
-            </span>
-          </div>
-          <div class="input-row">
-            <input id="amount" type="text" inputmode="decimal" autocomplete="off"
-                   spellcheck="false" placeholder="0.000000"
-                   aria-describedby="receive-line" />
-            <span class="input-unit" aria-hidden="true">FXRP</span>
-            <button id="max" class="btn btn-ghost btn-sm" type="button">Max</button>
-          </div>
-        </div>
-
-        <div class="receive" id="receive-line">
-          <div class="receive-row">
-            <span class="receive-label" id="receive-label">You receive</span>
-            <span class="receive-value mono" id="receive-value">—</span>
-          </div>
-          <div class="receive-row receive-row-sub">
-            <span>Share price</span>
-            <span class="mono" id="receive-price">—</span>
-          </div>
-        </div>
-
-        <div class="button-row">
-          <button id="deposit" class="btn btn-primary btn-block" disabled>Deposit</button>
-          <button id="withdraw" class="btn btn-secondary btn-block is-hidden" disabled>Withdraw</button>
-        </div>
-
-        <p id="tx-status" class="status" role="status" aria-live="polite"></p>
-
-        <p class="action-note" id="withdraw-note" hidden>
-          Withdrawals are served from idle capital first, then by unwinding venues. A venue marked
-          <em>delayed exit</em> settles through a queue, so Max can quote less than your full
-          position — the vault will not promise funds it cannot pay today.
-        </p>
-      </div>
-
-      <!-- Funding. Someone arriving with an empty wallet cannot try the product at all, and the
-           failure they hit ("insufficient funds") names neither which of the two tokens is missing
-           nor where to get it. Both are needed and they are not interchangeable: C2FLR pays gas,
-           FXRP is what the vault takes. FXRP has no public mint on Coston2 — the faucet is the only
-           route — so this links out rather than pretending to be a mint button. -->
-      <details class="funding" id="funding">
-        <summary class="funding-summary">
-          <span class="funding-summary-label">Testnet balances</span>
-          <span id="funding-verdict" class="pill pill-muted">connect to check</span>
-          <span class="chev" aria-hidden="true"></span>
-        </summary>
-        <div class="funding-body">
-          <div class="funding-balances">
-            <div class="metric">
-              <span class="label">C2FLR <span class="subtle">gas</span></span>
-              <span class="value-sm mono" id="bal-gas">—</span>
-            </div>
-            <div class="metric">
-              <span class="label">FXRP <span class="subtle">deposits</span></span>
-              <span class="value-sm mono" id="bal-fxrp">—</span>
-            </div>
-          </div>
-          <div class="funding-actions">
-            <a id="faucet-link" class="btn btn-secondary btn-sm"
-               href="https://faucet.flare.network/coston2" target="_blank" rel="noopener noreferrer">
-              Open faucet <span class="ext" aria-hidden="true">↗</span>
-            </a>
-            <button id="copy-address" class="btn btn-ghost btn-sm" disabled>Copy address</button>
-            <button id="watch-fxrp" class="btn btn-ghost btn-sm">Add FXRP to wallet</button>
-          </div>
-          <p class="funding-note" id="funding-note">
-            The faucet gives 100 C2FLR and 10 FXRP per address per 24h. Request both.
+    <section class="hero" id="vault" aria-labelledby="vault-title">
+      <div class="hero-head">
+        <div>
+          <h1 id="vault-title">Tacit FXRP Vault</h1>
+          <p class="hero-sub">
+            Automated FXRP allocation with on-chain guardrails. Deposit from Coston2, or from Base
+            Sepolia in a single transaction.
           </p>
         </div>
-      </details>
+        <div class="hero-status">
+          <span class="dot dot-idle" id="hero-dot" aria-hidden="true"></span>
+          <span class="hero-status-text">
+            <strong id="hero-status-label">Checking strategy…</strong>
+            <span class="hero-status-sub">Last rebalance <span id="hero-last-rebalance">—</span></span>
+          </span>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric metric-lead">
+          <span class="label" id="lab-tvl">Total value locked</span>
+          <span class="value value-xl" id="tvl" aria-labelledby="lab-tvl">—</span>
+          <span class="metric-note">Assets held by the vault, across all venues</span>
+        </div>
+        <div class="metric metric-lead">
+          <span class="label" id="lab-pos">Your position</span>
+          <span class="value value-xl" id="your-assets" aria-labelledby="lab-pos">—</span>
+          <span class="metric-note">Current redemption value of your shares</span>
+        </div>
+        <div class="metric">
+          <span class="label" id="lab-price">Share price</span>
+          <span class="value" id="share-price" aria-labelledby="lab-price">—</span>
+          <span class="metric-note">FXRP per share</span>
+        </div>
+        <div class="metric">
+          <span class="label" id="lab-shares">Your shares</span>
+          <span class="value mono" id="your-shares" aria-labelledby="lab-shares">—</span>
+          <span class="metric-note">Vault share token balance</span>
+        </div>
+      </div>
     </section>
 
-    <!-- ── Guardrails ─────────────────────────────────────────── -->
-    <section class="card" id="strategy" aria-labelledby="guardrails-title">
-      <h2 id="guardrails-title" class="card-title">On-chain guardrails</h2>
-      <p class="card-intro">Every strategy decision is checked by the vault before execution.</p>
+    <!-- Two-column dashboard. The deposit form is a task; the allocation is a status. Reading
+         them side-by-side is the classic DeFi vault pattern: what you can do is on the left,
+         what has happened is on the right. Stacks below 980px. -->
+    <div class="columns vault-columns">
 
-      <ul class="guardrails" id="guardrails">
-        <li data-key="conservation">
-          <details>
-            <summary>
-              <span class="tick" aria-hidden="true">✓</span>
-              <span class="g-name">Conservation</span>
-              <span class="g-value" id="g-conservation">—</span>
-              <span class="chev" aria-hidden="true"></span>
-            </summary>
-            <p class="g-note">
-              Total assets may not fall across a rebalance. Capital can move between venues; it
-              cannot leave. A plan that would shrink the vault is rejected outright.
+      <section class="card panel-action" aria-labelledby="action-title">
+        <div class="card-head">
+          <div>
+            <h2 id="action-title" class="card-title">Deposit &amp; withdraw</h2>
+            <p class="card-intro" id="action-intro">Move FXRP in from either chain, or redeem
+              your shares back to FXRP on Coston2.</p>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Deposit or withdraw">
+          <button id="tab-deposit" class="tab is-active" role="tab"
+                  aria-selected="true" aria-controls="action-panel" data-mode="deposit">Deposit</button>
+          <button id="tab-withdraw" class="tab" role="tab"
+                  aria-selected="false" aria-controls="action-panel" data-mode="withdraw">Withdraw</button>
+        </div>
+
+        <div id="action-panel" role="tabpanel" aria-labelledby="tab-deposit" class="action-panel">
+
+          <!-- ─── Step 1: source ─────────────────────────────────
+               Numbered because the three inputs below need a sequence a first-time depositor
+               can follow. Numbers are decorative — they never disturb the tab order. -->
+          <div class="form-step" id="step-source">
+            <div class="step-head">
+              <span class="step-num" aria-hidden="true">1</span>
+              <div class="step-labels">
+                <span class="step-title" id="source-label">Deposit from</span>
+                <span class="step-sub" id="source-aux">Both routes credit the same vault on Coston2</span>
+              </div>
+            </div>
+            <div class="source-opts" role="group" aria-labelledby="source-label">
+              <button type="button" id="source-hub" class="source-opt is-active"
+                      aria-pressed="true" data-source="hub">
+                <span class="source-opt-name">Coston2</span>
+                <span class="source-opt-sub">Direct · pays C2FLR</span>
+              </button>
+              <button type="button" id="source-spoke" class="source-opt"
+                      aria-pressed="false" data-source="spoke">
+                <span class="source-opt-name">Base Sepolia</span>
+                <span class="source-opt-sub">LayerZero · pays ETH</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ─── Step 2: amount ────────────────────────────────── -->
+          <div class="form-step" id="step-amount">
+            <div class="step-head">
+              <span class="step-num" aria-hidden="true">2</span>
+              <div class="step-labels">
+                <span class="step-title"><label for="amount">Amount</label></span>
+                <span class="step-sub">
+                  <span id="available-label">Available</span> ·
+                  <span class="mono" id="available-amount">—</span>
+                </span>
+              </div>
+            </div>
+            <div class="input-row">
+              <input id="amount" type="text" inputmode="decimal" autocomplete="off"
+                     spellcheck="false" placeholder="0.000000"
+                     aria-describedby="receive-line" />
+              <span class="input-unit" id="input-unit" aria-hidden="true">FXRP</span>
+              <button id="max" class="btn btn-ghost btn-sm" type="button">Max</button>
+            </div>
+          </div>
+
+          <!-- ─── Step 3: quote ──────────────────────────────────
+               No number: this is derived, not entered. Reads as a receipt above the button. -->
+          <div class="quote" id="receive-line">
+            <div class="quote-row quote-row-lead">
+              <span class="quote-label" id="receive-label">You receive</span>
+              <span class="quote-value mono" id="receive-value">—</span>
+            </div>
+            <div class="quote-row">
+              <span>Share price</span>
+              <span class="mono" id="receive-price">—</span>
+            </div>
+            <div class="quote-row is-hidden" id="receive-route-row">
+              <span id="receive-route-label">Bridge fee</span>
+              <span class="mono" id="receive-route">—</span>
+            </div>
+          </div>
+
+          <div class="button-row">
+            <button id="deposit" class="btn btn-primary btn-block" disabled>Deposit</button>
+            <button id="withdraw" class="btn btn-secondary btn-block is-hidden" disabled>Withdraw</button>
+          </div>
+
+          <p id="tx-status" class="status" role="status" aria-live="polite"></p>
+          <p id="tx-track" class="action-note action-note-track is-hidden"></p>
+
+          <p class="action-note" id="deposit-note" hidden>
+            Your FXRP is burned on Base Sepolia, released from escrow on Coston2, and deposited by
+            the vault composer in one message — one signature, no Coston2 gas. Shares arrive as
+            tFXRP on Coston2, typically within a minute. Both legs are traceable on LayerZero Scan.
+          </p>
+
+          <p class="action-note" id="withdraw-note" hidden>
+            Withdrawals are served from idle capital first, then by unwinding venues. A venue marked
+            <em>delayed exit</em> settles through a queue, so Max can quote less than your full
+            position — the vault will not promise funds it cannot pay today.
+          </p>
+        </div>
+
+        <details class="funding" id="funding">
+          <summary class="funding-summary">
+            <span class="funding-summary-label">Testnet balances</span>
+            <span id="funding-verdict" class="pill pill-muted">connect to check</span>
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="funding-body">
+            <div class="funding-balances">
+              <div class="metric">
+                <span class="label"><span id="bal-gas-symbol">C2FLR</span> <span class="subtle">gas</span></span>
+                <span class="value-sm mono" id="bal-gas">—</span>
+              </div>
+              <div class="metric">
+                <span class="label">FXRP <span class="subtle" id="bal-fxrp-where">deposits</span></span>
+                <span class="value-sm mono" id="bal-fxrp">—</span>
+              </div>
+            </div>
+            <div class="funding-actions">
+              <a id="faucet-link" class="btn btn-secondary btn-sm"
+                 href="https://faucet.flare.network/coston2" target="_blank" rel="noopener noreferrer">
+                Open faucet <span class="ext" aria-hidden="true">↗</span>
+              </a>
+              <button id="copy-address" class="btn btn-ghost btn-sm" disabled>Copy address</button>
+              <button id="watch-fxrp" class="btn btn-ghost btn-sm">Add FXRP to wallet</button>
+            </div>
+            <p class="funding-note" id="funding-note">
+              The faucet gives 100 C2FLR and 10 FXRP per address per 24h. Request both.
             </p>
-          </details>
-        </li>
-        <li data-key="cap">
-          <details>
-            <summary>
-              <span class="tick" aria-hidden="true">✓</span>
-              <span class="g-name">Venue cap</span>
-              <span class="g-value" id="g-cap">—</span>
-              <span class="chev" aria-hidden="true"></span>
-            </summary>
-            <p class="g-note">
-              The largest share any single venue may hold. Shown as the highest cap across active
-              venues — no plan can concentrate the book past it, however confident the strategy is.
-            </p>
-          </details>
-        </li>
-        <li data-key="turnover">
-          <details>
-            <summary>
-              <span class="tick" aria-hidden="true">✓</span>
-              <span class="g-name">Turnover</span>
-              <span class="g-value" id="g-turnover">—</span>
-              <span class="chev" aria-hidden="true"></span>
-            </summary>
-            <p class="g-note">
-              The maximum fraction of the book that may be rotated in one rebalance. This bounds
-              churn, so an agent cannot grind the vault down through repeated large reshuffles.
-            </p>
-          </details>
-        </li>
-        <li data-key="band">
-          <details>
-            <summary>
-              <span class="tick" aria-hidden="true">✓</span>
-              <span class="g-name">FTSO band</span>
-              <span class="g-value" id="g-band">—</span>
-              <span class="chev" aria-hidden="true"></span>
-            </summary>
-            <p class="g-note">
-              The reference price in the plan must sit within this band of Flare's FTSO XRP/USD
-              feed. A price the market never printed cannot be used to justify an allocation.
-            </p>
-          </details>
-        </li>
-        <li data-key="age">
-          <details>
-            <summary>
-              <span class="tick" aria-hidden="true">✓</span>
-              <span class="g-name">Signal freshness</span>
-              <span class="g-value" id="g-age">—</span>
-              <span class="chev" aria-hidden="true"></span>
-            </summary>
-            <p class="g-note">
-              The attested market observation behind a plan must be newer than this. Stale data
-              cannot be replayed to re-run a decision the market has already moved past.
-            </p>
-          </details>
-        </li>
-      </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- Concise allocation — the detailed guardrail explanations live on Strategy. This block
+           answers "where is my money?" and nothing else. -->
+      <section class="card" aria-labelledby="vault-allocation-title">
+        <div class="card-head">
+          <div>
+            <h2 id="vault-allocation-title" class="card-title">Current allocation</h2>
+            <p class="card-intro">Where the vault's capital is currently deployed. See
+              <a href="/strategy" data-route="strategy">Strategy</a> for why.</p>
+          </div>
+          <span class="pill pill-muted" id="alloc-total">—</span>
+        </div>
+
+        <div class="alloc-layout">
+          <div class="alloc-chart" id="alloc-chart" aria-hidden="true"></div>
+          <div id="allocation" class="allocation">
+            <p class="empty">Loading allocation from Coston2…</p>
+          </div>
+        </div>
+
+        <p class="alloc-foot">
+          Idle capital is held by the vault. It is the first source drawn on for withdrawals,
+          bounded by the same conservation rule as everything else.
+        </p>
+      </section>
+    </div>
+
+    <footer class="page-footer">
+      <p class="small subtle" id="vault-address-line">—</p>
+    </footer>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       STRATEGY PAGE — "Understand how Tacit makes decisions."
+       Detailed guardrails, current signal, rebalance rhythm, enclave.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section class="page" data-page-view="strategy" aria-labelledby="strategy-title" hidden>
+
+    <section class="hero" aria-labelledby="strategy-title">
+      <div class="hero-head">
+        <div>
+          <h1 id="strategy-title">Strategy</h1>
+          <p class="hero-sub">
+            How Tacit decides what to do — and what prevents the strategy from behaving badly.
+          </p>
+        </div>
+        <div class="hero-status">
+          <span class="dot dot-idle" id="strategy-dot" aria-hidden="true"></span>
+          <span class="hero-status-text">
+            <strong id="strategy-status-label">Checking strategy…</strong>
+            <span class="hero-status-sub">Nonce <span id="strategy-nonce">—</span> ·
+              next eligible <span id="strategy-next" class="mono">—</span></span>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Rebalance rhythm at a glance. Not the "Activity" — that is a historical log — but a
+         real-time answer to "when might this thing act next?" -->
+    <section class="card" aria-labelledby="rebalance-title">
+      <div class="card-head">
+        <div>
+          <h2 id="rebalance-title" class="card-title">Rebalance rhythm</h2>
+          <p class="card-intro">Anyone can request a rebalance. The enclave proposes; the vault
+            decides whether the plan is allowed to execute.</p>
+        </div>
+        <button id="request-rebalance" class="btn btn-secondary btn-sm" disabled>Request rebalance</button>
+      </div>
+
+      <div class="activity-grid">
+        <div class="metric">
+          <span class="label">Last rebalance</span>
+          <span class="value-sm" id="last-rebalance">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Rebalance</span>
+          <span class="value-sm mono" id="nonce">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Next eligible</span>
+          <span class="value-sm mono" id="next-eligible">—</span>
+        </div>
+        <div class="metric">
+          <span class="label">Autopilot</span>
+          <span id="autopilot-pill" class="pill pill-muted">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Guardrails as topical expandable cards, in the WHAT / WHY / CURRENT / STATUS structure the
+         spec asks for. Values load live via app.js — same IDs as before, so nothing here duplicates
+         data-fetching. -->
+    <section class="card" aria-labelledby="guardrails-title">
+      <div class="card-head">
+        <div>
+          <h2 id="guardrails-title" class="card-title">On-chain guardrails</h2>
+          <p class="card-intro">Five invariants bound every plan the enclave can submit. Each is
+            checked by the vault before execution; a plan that would violate any of them reverts.</p>
+        </div>
+      </div>
+
+      <div class="rail-grid">
+        <details class="rail" data-key="conservation" open>
+          <summary class="rail-head">
+            <span class="rail-icon" aria-hidden="true">◆</span>
+            <span class="rail-name">Conservation</span>
+            <span class="rail-value" id="g-conservation">—</span>
+            <span class="rail-status pill pill-good" id="g-conservation-status">enforced</span>
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="rail-body">
+            <p class="rail-what"><strong>What it is.</strong> Total assets may not fall across a
+              rebalance. Capital can move between venues; it cannot leave the vault.</p>
+            <p class="rail-why"><strong>Why it exists.</strong> Without it, a signed plan could
+              route capital through a venue that paid the attacker on the way through. The
+              conservation check makes routing losses impossible independent of who the venue is.</p>
+          </div>
+        </details>
+
+        <details class="rail" data-key="cap">
+          <summary class="rail-head">
+            <span class="rail-icon" aria-hidden="true">◇</span>
+            <span class="rail-name">Venue cap</span>
+            <span class="rail-value" id="g-cap">—</span>
+            <span class="rail-status pill pill-good">bounded per venue</span>
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="rail-body">
+            <p class="rail-what"><strong>What it is.</strong> The largest share any single venue is
+              allowed to hold. Shown as the highest cap across active venues.</p>
+            <p class="rail-why"><strong>Why it exists.</strong> A compromised or failing venue can
+              only ever lose its own slice; the rest of the vault is unaffected. However confident
+              the strategy is, it cannot concentrate the book past this bound.</p>
+          </div>
+        </details>
+
+        <details class="rail" data-key="turnover">
+          <summary class="rail-head">
+            <span class="rail-icon" aria-hidden="true">↻</span>
+            <span class="rail-name">Turnover</span>
+            <span class="rail-value" id="g-turnover">—</span>
+            <span class="rail-status pill pill-good">per rebalance</span>
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="rail-body">
+            <p class="rail-what"><strong>What it is.</strong> The maximum fraction of the book that
+              may be rotated in a single rebalance.</p>
+            <p class="rail-why"><strong>Why it exists.</strong> A malicious agent that can act often
+              enough will grind the vault down through cost even without ever failing another check.
+              Turnover + a minimum interval put a ceiling on how fast the book can churn.</p>
+          </div>
+        </details>
+
+        <details class="rail" data-key="band">
+          <summary class="rail-head">
+            <span class="rail-icon" aria-hidden="true">±</span>
+            <span class="rail-name">FTSO band</span>
+            <span class="rail-value" id="g-band">—</span>
+            <span class="rail-status pill pill-good" id="g-band-status">vs FTSO XRP/USD</span>
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="rail-body">
+            <p class="rail-what"><strong>What it is.</strong> The reference price the enclave
+              claims to have used must sit within this band of Flare's FTSO XRP/USD feed.</p>
+            <p class="rail-why"><strong>Why it exists.</strong> The claimed price is an input to the
+              agent's decision. Anchoring it to the FTSO feed means an invented price cannot be used
+              to justify an allocation the market did not print.</p>
+          </div>
+        </details>
+
+        <details class="rail" data-key="age">
+          <summary class="rail-head">
+            <span class="rail-icon" aria-hidden="true">⌛</span>
+            <span class="rail-name">Signal freshness</span>
+            <span class="rail-value" id="g-age">—</span>
+            <span class="rail-status pill pill-good">max signal age</span>
+            <span class="chev" aria-hidden="true"></span>
+          </summary>
+          <div class="rail-body">
+            <p class="rail-what"><strong>What it is.</strong> The attested market observation behind
+              a plan must be newer than this threshold, measured from the FDC voting round.</p>
+            <p class="rail-why"><strong>Why it exists.</strong> A signal old enough to be
+              stale is a signal old enough to be replayed. The freshness bound plus the monotonic
+              nonce make replay of past decisions impossible.</p>
+          </div>
+        </details>
+      </div>
 
       <div class="enclave-row">
         <span class="label">Enclave identity</span>
@@ -279,67 +449,12 @@
         exactly why these five checks are enforced on-chain instead of trusting the enclave.
       </p>
     </section>
-  </div>
 
-  <!-- ── Allocation ───────────────────────────────────────────── -->
-  <section class="card" aria-labelledby="allocation-title">
-    <div class="card-head">
-      <div>
-        <h2 id="allocation-title" class="card-title">Current allocation</h2>
-        <p class="card-intro">Where the vault's capital is currently deployed.</p>
-      </div>
-      <span class="pill pill-muted" id="alloc-total">—</span>
-    </div>
-
-    <div class="alloc-layout">
-      <div class="alloc-chart" id="alloc-chart" aria-hidden="true"></div>
-      <div id="allocation" class="allocation">
-        <p class="empty">Loading allocation from Coston2…</p>
-      </div>
-    </div>
-
-    <p class="alloc-foot">
-      Idle capital is held by the vault itself. It is the first source drawn on for withdrawals,
-      and it is bounded by the same conservation rule as everything else.
-    </p>
-  </section>
-
-  <!-- ── Activity ─────────────────────────────────────────────── -->
-  <section class="card" id="activity" aria-labelledby="activity-title">
-    <div class="card-head">
-      <div>
-        <h2 id="activity-title" class="card-title">Rebalancing</h2>
-        <p class="card-intro">
-          Anyone can request a rebalance. The enclave proposes; the vault decides.
-        </p>
-      </div>
-      <button id="request-rebalance" class="btn btn-secondary btn-sm" disabled>Request rebalance</button>
-    </div>
-
-    <div class="activity-grid">
-      <div class="metric">
-        <span class="label">Last rebalance</span>
-        <span class="value-sm" id="last-rebalance">—</span>
-      </div>
-      <div class="metric">
-        <span class="label">Rebalance</span>
-        <span class="value-sm mono" id="nonce">—</span>
-      </div>
-      <div class="metric">
-        <span class="label">Next eligible</span>
-        <span class="value-sm mono" id="next-eligible">—</span>
-      </div>
-      <div class="metric">
-        <span class="label">Autopilot</span>
-        <span id="autopilot-pill" class="pill pill-muted">—</span>
-      </div>
-    </div>
-
-    <!-- ── Attested signal ────────────────────────────────────── -->
-    <div class="signal-block">
+    <!-- Attested signal + current allocation live here on Strategy, not on Vault. -->
+    <section class="card" aria-labelledby="signal-title">
       <div class="card-head card-head-sub">
         <div>
-          <h3 class="sub-title">Last attested signal</h3>
+          <h2 id="signal-title" class="card-title">Last attested signal</h2>
           <p class="card-intro">
             The strategy stays inside the enclave. Its <em>inputs</em> are public and verified by
             ~100 independent data providers, so any allocation can be audited after the fact.
@@ -362,50 +477,697 @@
         <span class="value-sm mono" id="ftso-price">—</span>
         <span id="band-verdict" class="pill pill-muted">—</span>
       </div>
-    </div>
+    </section>
+
   </section>
 
-  <!-- ── Trust flow ───────────────────────────────────────────── -->
-  <section class="card trust" id="docs" aria-labelledby="trust-title">
-    <h2 id="trust-title" class="card-title">How it holds together</h2>
-    <ol class="flow">
-      <li class="flow-step">
-        <span class="flow-index" aria-hidden="true">01</span>
-        <span class="flow-name">Private strategy</span>
-        <span class="flow-desc">The allocation model runs inside an enclave and never leaves it.</span>
-      </li>
-      <li class="flow-step">
-        <span class="flow-index" aria-hidden="true">02</span>
-        <span class="flow-name">Public inputs</span>
-        <span class="flow-desc">The market data it reads is attested on-chain by ~100 providers.</span>
-      </li>
-      <li class="flow-step">
-        <span class="flow-index" aria-hidden="true">03</span>
-        <span class="flow-name">On-chain guardrails</span>
-        <span class="flow-desc">Five checks bound every plan before the vault will execute it.</span>
-      </li>
-      <li class="flow-step">
-        <span class="flow-index" aria-hidden="true">04</span>
-        <span class="flow-name">User funds</span>
-        <span class="flow-desc">Capital moves between venues. It cannot be moved out.</span>
-      </li>
-    </ol>
-    <p class="trust-foot">
-      A malicious enclave can still pick a poor-but-legal allocation, or refuse to act. It cannot
-      move funds out, concentrate, churn, or act on a price the market never printed.
-      <strong>The enclave controls strategy quality, never fund safety.</strong>
-    </p>
+  <!-- ═══════════════════════════════════════════════════════════════════
+       ACTIVITY PAGE — "See what happened."
+       Reads on-chain events from the vault: rebalances, deposits, withdrawals.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section class="page" data-page-view="activity" aria-labelledby="activity-title" hidden>
+
+    <section class="hero" aria-labelledby="activity-title">
+      <div class="hero-head">
+        <div>
+          <h1 id="activity-title">Activity</h1>
+          <p class="hero-sub">
+            Everything the vault has done, read directly from Coston2. Nothing is indexed off-chain;
+            every row here comes from an event you can verify on the explorer.
+          </p>
+        </div>
+        <div class="hero-status">
+          <span class="dot dot-good" aria-hidden="true"></span>
+          <span class="hero-status-text">
+            <strong>Live</strong>
+            <span class="hero-status-sub">Rebalances · deposits · withdrawals</span>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="activity-list-title">
+      <div class="card-head">
+        <div>
+          <h2 id="activity-list-title" class="card-title">Vault events</h2>
+          <p class="card-intro">Reverse chronological. Amounts are quoted in the vault's asset
+            (FXRP) or its share token (tFXRP), never converted through a price.</p>
+        </div>
+        <div class="activity-controls">
+          <div class="filter-group" role="group" aria-label="Filter by event type">
+            <button type="button" class="filter-btn is-active" data-filter="all">All</button>
+            <button type="button" class="filter-btn" data-filter="deposit">Deposits</button>
+            <button type="button" class="filter-btn" data-filter="withdraw">Withdrawals</button>
+            <button type="button" class="filter-btn" data-filter="rebalance">Rebalances</button>
+          </div>
+          <button id="activity-refresh" class="btn btn-ghost btn-sm" type="button">Refresh</button>
+        </div>
+      </div>
+
+      <div id="activity-list" class="activity-list">
+        <p class="empty">Loading events from Coston2…</p>
+      </div>
+
+      <p class="alloc-foot" id="activity-foot">
+        Events are fetched from the Coston2 explorer's log index — the same on-chain events, just
+        without the public RPC's 30-block query cap. Every row still links to the transaction.
+      </p>
+    </section>
   </section>
 
-  <footer>
-    <p class="small subtle" id="vault-address-line">—</p>
-  </footer>
+  <!-- ═══════════════════════════════════════════════════════════════════
+       DOCUMENTATION PAGE — "Learn how Tacit works."
+       Extensive prose. Expandable topical cards so it scans, not scrolls.
+       ═══════════════════════════════════════════════════════════════════ -->
+  <section class="page" data-page-view="documentation" aria-labelledby="docs-title" hidden>
+
+    <section class="hero" aria-labelledby="docs-title">
+      <div class="hero-head">
+        <div>
+          <h1 id="docs-title">Documentation</h1>
+          <p class="hero-sub">
+            What Tacit is, how each part works, and what you are and are not trusting.
+          </p>
+        </div>
+        <a class="btn btn-secondary btn-sm" href="https://github.com/drained69/Tacit"
+           target="_blank" rel="noopener noreferrer">
+          Source on GitHub <span class="ext" aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="card docs">
+
+      <h3 class="sub-title docs-flow-title">How it holds together</h3>
+      <ol class="flow">
+        <li class="flow-step">
+          <span class="flow-index" aria-hidden="true">01</span>
+          <span class="flow-name">Private strategy</span>
+          <span class="flow-desc">The allocation model runs inside an enclave and never leaves it.</span>
+        </li>
+        <li class="flow-step">
+          <span class="flow-index" aria-hidden="true">02</span>
+          <span class="flow-name">Public inputs</span>
+          <span class="flow-desc">The market data it reads is attested on-chain by ~100 providers.</span>
+        </li>
+        <li class="flow-step">
+          <span class="flow-index" aria-hidden="true">03</span>
+          <span class="flow-name">On-chain guardrails</span>
+          <span class="flow-desc">Five checks bound every plan before the vault will execute it.</span>
+        </li>
+        <li class="flow-step">
+          <span class="flow-index" aria-hidden="true">04</span>
+          <span class="flow-name">User funds</span>
+          <span class="flow-desc">Capital moves between venues. It cannot be moved out.</span>
+        </li>
+      </ol>
+      <p class="trust-foot">
+        A malicious enclave can still pick a poor-but-legal allocation, or refuse to act. It cannot
+        move funds out, concentrate, churn, or act on a price the market never printed.
+        <strong>The enclave controls strategy quality, never fund safety.</strong>
+      </p>
+
+      <div class="docs-sections">
+
+        <details class="docs-section" open>
+          <summary><span class="docs-h">What is Tacit?</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              Tacit is an ERC-4626 vault over FXRP whose <strong>allocation is decided by an
+              autonomous agent running inside a confidential enclave</strong>, and whose
+              <strong>authority over funds is bounded in Solidity</strong>. The agent reads a
+              market signal that ~100 independent Flare Data Connector providers have attested
+              on-chain, decides how to split the book across yield venues, and signs a plan. The
+              vault checks the plan against five invariants and either accepts it or reverts.
+            </p>
+            <p>
+              A depositor sees an ordinary vault: <code>deposit</code>, <code>withdraw</code>, a
+              share price that rises with yield. Underneath, the strategy is private and the
+              enforcement is public. The design is one sentence: <strong>the enclave controls
+              strategy quality, never fund safety.</strong>
+            </p>
+            <p>
+              This is a hackathon submission for <strong>Flare Summer Signal</strong>, targeting
+              both the <em>Interoperable Asset Products</em> and <em>Confidential Compute Apps</em>
+              bounties. The contribution is the trust boundary between a confidential agent and a
+              public vault — plus an empirical map of what Web2Json can actually do and what
+              happens when a vault is pointed at a real third-party venue instead of a mock.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Why this needs a TEE</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              The obvious objection is "why not publish the strategy and skip the enclave?" Three
+              answers, in increasing order of importance.
+            </p>
+            <p>
+              <strong>Confidentiality is the product.</strong> A published rule is a rule that
+              gets front-run and copied. If you know what a vault will buy before it buys, you can
+              trade ahead of it. If you know its thresholds, you can push an observable metric
+              just past one and <em>force</em> a rebalance, then harvest the turnover you induced.
+              The strategy <em>is</em> the alpha.
+            </p>
+            <p>
+              <strong>Only some things need to be private — and Tacit privatises exactly those.</strong>
+              The inputs are public and attested. The resulting allocation is public and on-chain.
+              What stays inside the enclave is the <em>mapping</em> between them: the weights,
+              thresholds, and risk budget. An observer sees what the agent saw and what it did,
+              and still cannot reproduce the rule. That is a much narrower privacy claim than
+              "our vault is a black box."
+            </p>
+            <p>
+              <strong>A TEE alone would not be enough.</strong> A confidential agent that also has
+              unbounded authority over funds is a trusted operator with extra steps — you have
+              swapped "trust the manager" for "trust the manager's hardware." Tacit's contribution
+              is the boundary itself: the enclave is given exactly enough authority to be useful
+              and provably no more, so its confidentiality costs the depositor nothing in safety.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">How the vault works</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              The vault holds real FXRP and mints tFXRP shares against it. Standards: ERC-4626,
+              ERC-20, ERC-165, Ownable2Step, Pausable, ReentrancyGuard on <em>every</em> entry
+              point — not only the ones that look risky, because <code>_withdraw</code> calls
+              foreign venue code before shares are burned.
+            </p>
+            <p>
+              Share-to-asset conversion follows OpenZeppelin's ERC-4626 offset: shares carry a
+              +3 decimal offset over the asset, so a 6-decimal FXRP yields a 9-decimal tFXRP.
+              This makes the classic "first-depositor share-price inflation" attack too expensive
+              to be worth attempting on any realistic vault size.
+            </p>
+            <p>
+              Two deliberate departures from the OpenZeppelin defaults: pausing stops deposits but
+              never withdrawals (an operator who can freeze exits can rug — the emergency control
+              only blocks new money in and new allocations out), and <code>maxWithdraw</code> is
+              derived from the vault's own liquidity — venues declared <em>delayed exit</em> do
+              not count toward it, so quotes are honest from the first call.
+            </p>
+            <p>
+              Every entry point is <code>nonReentrant</code>. OpenZeppelin's ERC-4626 is unguarded,
+              which is correct for a vault holding its own assets and wrong for one that calls into
+              foreign code before burning shares. A test named
+              <code>test_venueCannotReenterRedemption</code> builds a venue that re-enters on
+              withdrawal and asserts the guard specifically — having first confirmed by mutation
+              that the test fails when the modifier is removed.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">How the autonomous strategy works</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>Every rebalance runs the same four-step loop.</p>
+            <p>
+              <strong>1 — Observe.</strong> The relayer builds a Web2Json attestation request for
+              Coinpaprika's XRP ticker and submits it to <code>FdcHub</code>. Roughly 100 data
+              providers independently fetch the URL, apply the same jq transform, and vote. The
+              round finalises in 90–180 seconds and a Merkle proof is published. Coinpaprika is
+              not an arbitrary choice: the source has to be one the <em>providers</em> will fetch
+              (a smaller set than the verifier accepts), and it is the only attesting source
+              carrying price, volume, and multiple return horizons in a single document.
+            </p>
+            <p>
+              <strong>2 — Decide.</strong> The enclave receives the attested observation and
+              per-venue metadata (cap, declared liquidity, realised rate). It computes a
+              <em>risk budget</em> — how much of the vault should be deployed at all — from
+              realised volatility, 24-hour drawdown, and volume. It splits that budget across
+              venues, tilted toward yield. It signs
+              <code>(nonce, deadline, signalHash, refPrice, targets)</code> with its registered
+              identity, binding the signature to this chain and this vault.
+            </p>
+            <p>
+              <strong>3 — Enforce.</strong> <code>executeRebalance</code> verifies the FDC proof,
+              checks the plan is bound by hash to <em>that</em> observation, checks the reference
+              price against the FTSO XRP/USD feed, and then <em>re-derives every transfer from its
+              own ledger</em> rather than trusting any number in the plan. The five invariants are
+              asserted against the result.
+            </p>
+            <p>
+              <strong>4 — Settle.</strong> Funds move. <code>lastSignal</code> and
+              <code>lastFtsoPriceMicroUsd</code> are stored on-chain so the inputs behind the
+              allocation stay publicly auditable after the fact.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">What the enclave does — and does not</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              The enclave holds the private allocation model, an identity key derived from the TEE,
+              and nothing else. It receives an attested signal, computes a weight vector, and signs
+              <code>(nonce, deadline, signalHash, refPrice, targets)</code>. The signature is
+              verified on-chain against <code>teeIdentity()</code>, which is set once at
+              deployment and can only be rotated by the vault owner.
+            </p>
+            <p>
+              <strong>What the enclave cannot do, even if fully compromised:</strong>
+            </p>
+            <ul class="docs-list">
+              <li>Move funds out of the vault — the ERC-4626 surface is the only exit, and the
+                vault re-derives its own transfers.</li>
+              <li>Breach a venue cap — the resulting allocation is checked venue-by-venue.</li>
+              <li>Exceed the turnover limit — computed on the delta between before and after.</li>
+              <li>Act on a price outside the FTSO band — <code>PriceOutOfBand</code>.</li>
+              <li>Act on an observation the data providers never attested — <code>SignalMismatch</code>.</li>
+              <li>Replay a genuine but stale observation — <code>SignalStale</code>.</li>
+              <li>Replay a plan — monotonic nonce, plus a deadline (<code>PlanExpired</code>).</li>
+              <li>Bill the vault for its own signature — the signature domain is bound to chain
+                id and vault address.</li>
+            </ul>
+            <p>
+              <strong>What a malicious enclave <em>can</em> do:</strong> pick a legal-but-poor
+              allocation within the bands, or refuse to act. That is opportunity cost, not loss.
+              Deposits remain fully redeemable and the share price cannot fall from it. This is
+              stated plainly rather than buried — a trust model that only lists its strengths is
+              not a trust model.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">On-chain guardrails, in depth</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>Five checks bound every plan before the vault will execute it.
+              Live values are on the <a href="/strategy" data-route="strategy">Strategy</a> page.</p>
+            <ul class="docs-list">
+              <li><strong>Conservation.</strong> Total assets may not fall across a rebalance
+                (within a tiny tolerance for integer-division dust). A plan that would shrink the
+                vault is rejected outright, so routing funds through a hostile venue on the way
+                through is impossible independent of who the venue is.</li>
+              <li><strong>Venue cap.</strong> No venue may hold more than its configured share.
+                Firelight is registered at 30%; the synchronous venues at 60%. However confident
+                the strategy is, the book cannot be concentrated past these bounds.</li>
+              <li><strong>Turnover.</strong> The maximum fraction of the book that may be rotated
+                in one rebalance. This bounds churn, so a malicious enclave cannot bleed the vault
+                through repeated large reshuffles.</li>
+              <li><strong>Minimum interval.</strong> Rebalances are spaced by a floor
+                (<code>minRebalanceInterval</code>, currently 300 seconds). Turnover + interval
+                together put a ceiling on how fast the book can churn.</li>
+              <li><strong>FTSO price band.</strong> The reference price the enclave claims to have
+                used must sit within a bounded distance (currently ±5%) of Flare's FTSO XRP/USD
+                feed. Decimals are read from the feed rather than hardcoded, because Flare's docs
+                warn they can change.</li>
+              <li><strong>Signal binding.</strong> The plan is bound by hash to exactly one
+                attested observation. Compute on any other input and the vault rejects it as
+                <code>SignalMismatch</code>.</li>
+              <li><strong>Signal freshness.</strong> The attested observation behind a plan must
+                be newer than <code>maxSignalAge</code>. Freshness is reconstructed from the FDC
+                voting round, not from a timestamp inside the fetched document — a compromised
+                endpoint cannot backdate a round.</li>
+              <li><strong>Monotonic nonce + deadline.</strong> Every plan carries a nonce and a
+                deadline; the nonce never regresses and the deadline puts a hard bound on how long
+                a signed plan can wait to be submitted.</li>
+              <li><strong>Chain + vault binding in the signature.</strong> The EIP-712 domain
+                includes chain id and vault address, so a plan signed against one deployment
+                cannot be replayed against another.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Depositing (Coston2 direct)</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              Two signatures: an FXRP <code>approve</code> to the vault, then <code>deposit</code>.
+              Gas is paid in C2FLR on Coston2. The vault mints tFXRP shares directly to the caller.
+            </p>
+            <p>
+              The UI checks the wallet's FXRP balance before requesting an allowance so the error
+              names the wallet, not the vault — a bare <code>ERC20InsufficientBalance</code>
+              raised inside <code>transferFrom</code> otherwise reads like the vault is broken.
+              If an existing allowance already covers the amount, the approve step is skipped.
+            </p>
+            <p>
+              Get C2FLR and FXRP from the
+              <a href="https://faucet.flare.network/coston2" target="_blank"
+                 rel="noopener noreferrer">Coston2 faucet</a> — 100 C2FLR and 10 FXRP per address
+              per 24 hours. FXRP has no public mint on Coston2; the faucet is the only route.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Depositing (Base Sepolia, cross-chain)</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              One signature on Base Sepolia. The spoke's mint-burn OFT burns the sender's FXRP
+              mirror, LayerZero delivers a compose message to Coston2, the hub adapter releases
+              real FXRP from escrow to the composer, and the composer runs
+              <code>vault.deposit()</code> and forwards the shares. Depositor pays ETH for the
+              LayerZero fee — no Coston2 gas at any point.
+            </p>
+            <p>
+              Shares terminate on Coston2 by default via a plain <code>transfer</code> — no second
+              LayerZero message, no second fee, no Coston2 native drop. That last part is not
+              stylistic: the Coston2 executor advertises <code>nativeCap = 0</code> for the Base
+              Sepolia pathway, so a hop that needs native delivered on Coston2 is not fundable at
+              any price. Terminating on the hub sidesteps it entirely.
+            </p>
+            <p>
+              The inner <code>minAmountLD</code> is floored at
+              <code>previewDeposit(amount) × (1 − 50bps)</code>. Not slippage in the AMM sense —
+              an ERC-4626 deposit has no price impact. It absorbs the exchange rate moving between
+              quote and execution: yield accrues, and a rebalance can land in between. 50 bps is
+              generous for a minute-scale window while still catching what matters — the share
+              price moving by orders of magnitude, not fractions of a percent.
+            </p>
+            <p>
+              Both legs are traceable on
+              <a href="https://testnet.layerzeroscan.com" target="_blank"
+                 rel="noopener noreferrer">LayerZero Scan</a> under the same GUID. Typical end-to-end
+              landing time is under a minute on testnet.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Withdrawing</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              Hub-only, from Coston2. Withdrawals are served from idle capital first, then by
+              unwinding active venues <em>pro rata</em> rather than in index order. Sequential
+              unwinding concentrates residuals in later venues, which pushes them past shares the
+              enclave itself could never have requested. This bug was found by the invariant
+              fuzzer.
+            </p>
+            <p>
+              A venue marked <em>delayed exit</em> settles through a queue (Firelight is the live
+              example on Coston2) and does not count toward what you can redeem today. <code>Max</code>
+              quotes what the vault can actually pay right now rather than the position's full
+              value — the vault will not promise funds it cannot pay today.
+            </p>
+            <p>
+              Every call into a venue — <code>totalAssets</code>, <code>maxWithdraw</code>,
+              <code>withdraw</code> — is wrapped. A venue that reverts, lies, or hangs contributes
+              nothing and everyone else is still served. No single venue can freeze the vault or
+              block redemption.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Cross-chain architecture (LayerZero OVault)</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>The stack is LayerZero V2 with the Vault Composer pattern:</p>
+            <ul class="docs-list">
+              <li><strong>Spoke FXRP OFT</strong> — mint-burn OFT on Base Sepolia. Burns the
+                sender's balance directly on send, so no approve is needed.</li>
+              <li><strong>Hub asset adapter</strong> — lock-release OFT on Coston2 wrapping real
+                FXRP. Escrow lives on this contract.</li>
+              <li><strong>Hub share adapter</strong> — lock-release OFT wrapping tFXRP shares, for
+                the (opt-in) variant where shares bridge back to the spoke.</li>
+              <li><strong>Vault Composer</strong> — the LayerZero reference composer, deployed
+                unchanged. Decodes the compose message, calls <code>vault.deposit()</code>, and
+                either transfers the shares locally on the hub or bridges them.</li>
+            </ul>
+            <p>
+              The composer's outbound hop routes through <code>_sendLocal</code> when
+              <code>dstEid == HUB_EID</code> — a plain <code>transfer</code> of the real vault
+              shares, no second LayerZero message, no second fee. This is the default and cheapest
+              route, chosen by setting the hop's <code>dstEid</code> to Coston2's EID in the outer
+              send's <code>composeMsg</code>.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Autopilot &amp; the relayer</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              The relayer is a one-shot script that runs a full cycle when asked. The autopilot is
+              a small daemon that decides <em>when</em> to run one — so the vault keeps working
+              without every laptop being open.
+            </p>
+            <p>
+              It acts on two triggers: a <code>RebalanceRequested</code> event (what the UI's
+              <em>Request rebalance</em> button emits) and a heartbeat (default 3600s). Before
+              spending anything it runs a preflight — a cycle costs an FDC fee plus two
+              transactions and takes minutes to fail, so <code>RebalanceTooSoon</code>,
+              a paused vault, a mismatched enclave identity, or an empty relayer wallet are all
+              caught before submission.
+            </p>
+            <p>
+              Nothing kills it: every exception is logged and followed by exponential backoff
+              (30s → 15min cap). It polls <code>get_logs</code> over explicit block windows with a
+              persisted cursor rather than holding a filter handle — long-lived filters expire
+              silently on public RPCs, and a watcher that goes deaf looks identical to a quiet
+              market.
+            </p>
+            <p>
+              <strong>Neither shifts the trust boundary.</strong> The autopilot chooses <em>when</em>
+              a rebalance is attempted, never what it contains. <code>executeRebalance</code> is
+              permissionless and every field in it is attested, signed, or re-derived on-chain. A
+              stopped, stolen, or hostile autopilot is a liveness problem, never a safety one — a
+              stolen autopilot key buys the ability to pay gas and nothing else.
+            </p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Flare integration, primitive by primitive</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p><strong>FCC (Flare Confidential Compute).</strong> Runs the allocation model. The
+              risk budget, volatility bounds, drawdown sensitivity, and yield tilt never leave the
+              enclave. Built as a custom extension with op type <code>TACIT/REBALANCE</code> —
+              deliberately not <code>F_</code>-prefixed and not a reserved command name, because
+              a custom type reusing a reserved command passes local validation and is then
+              silently never delivered.</p>
+            <p><strong>FDC (Flare Data Connector, Web2Json).</strong> Attests Coinpaprika's XRP
+              ticker on-chain — price, 24h volume, and returns over 1h/6h/24h — verified by ~100
+              independent data providers. Each plan is bound by hash to exactly one attested
+              observation, which must be fresh. Freshness is reconstructed from the FDC voting
+              round as <code>FIRST_VOTING_ROUND_START_TS + votingRound × 90</code>, so a
+              compromised endpoint cannot backdate a timestamp inside its payload.</p>
+            <p><strong>FTSO.</strong> The XRP/USD feed bounds the reference price the enclave
+              claims to have used, to within 5%. This is not a price display — it is the invariant
+              that makes the enclave's output <em>auditable rather than trusted</em>. Without it,
+              <code>refPriceMicroUsd</code> would be an unfalsifiable claim.</p>
+            <p><strong>FAssets / FXRP.</strong> The managed asset, settled as a real ERC-20 on
+              Coston2, resolved from <code>AssetManagerFXRP.fAsset()</code> rather than hardcoded.
+              <strong>Six decimals, not 18</strong> — assuming otherwise silently breaks every
+              share price and threshold in the system.</p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Risk model</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>What you are trusting, and what you are not.</p>
+            <ul class="docs-list">
+              <li><strong>Not trusted:</strong> the enclave — bounded by the guardrails above.</li>
+              <li><strong>Not trusted:</strong> the relayer or autopilot — every field they carry
+                on-chain is attested, signed, or re-derived on-chain. A stolen autopilot key buys
+                the ability to pay gas and nothing else.</li>
+              <li><strong>Trusted (bounded):</strong> the underlying venue contracts — capped at
+                their configured share, isolated per venue, so a failing venue can lose its slice
+                but never freeze the vault or block redemption.</li>
+              <li><strong>Trusted (protocol):</strong> Flare's FDC verifier, FTSO, and FXRP asset
+                manager — the same Flare infrastructure any FXRP product depends on.</li>
+              <li><strong>Trusted (LayerZero):</strong> LayerZero V2 endpoints, DVNs, and
+                executors on both sides of the cross-chain deposit route — the Coston2 leg
+                additionally depends on the Vault Composer, which is unchanged bytecode from the
+                LayerZero reference.</li>
+              <li><strong>Trusted (operator):</strong> the vault owner (Ownable2Step) can pause
+                deposits, register/deactivate venues, update guardrail parameters within
+                Solidity-enforced bounds, and rotate the enclave identity. Cannot move funds.
+                Cannot pause withdrawals.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Failure scenarios</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>What happens when things go wrong, by component.</p>
+            <ul class="docs-list">
+              <li><strong>Enclave dies or refuses to sign.</strong> The vault stops rebalancing.
+                Deposits and withdrawals still work. Share price drifts with idle-yield only.</li>
+              <li><strong>Enclave lies within bounds.</strong> The strategy underperforms. Share
+                price will not fall from it; the checks make loss-from-plan impossible.</li>
+              <li><strong>FDC round fails or is not attested.</strong> The relayer surfaces the
+                failure and does not submit a plan. The vault does not accept unsignalled plans.</li>
+              <li><strong>Autopilot dies.</strong> Anyone (including the UI's <em>Request
+                rebalance</em> button) can still initiate a cycle by hand — the daemon only decides
+                <em>when</em>.</li>
+              <li><strong>Venue goes async.</strong> The adapter reverts on shares-leaving-without-
+                assets-arriving with <code>AsyncWithdrawalUnsupported</code>; the failing rebalance
+                rolls back rather than booking phantom accounting. Firelight is the live example.</li>
+              <li><strong>Venue reverts, lies, or hangs.</strong> Wrapped calls contain it; the
+                other venues and redemption continue serving.</li>
+              <li><strong>FTSO feed becomes stale or reverts.</strong> The price band check fails
+                closed — the rebalance reverts with <code>PriceOutOfBand</code> rather than
+                accepting whatever the enclave claims.</li>
+              <li><strong>LayerZero message stalls.</strong> The DVN/executor set eventually
+                delivers; if the compose fails on the hub, funds sit at the composer and are
+                recoverable via LayerZero's retry surface.</li>
+              <li><strong>Owner key is compromised.</strong> An attacker can pause deposits and
+                misregister venues. They cannot move funds; they cannot stop withdrawals. Recovery
+                is Ownable2Step transfer to a fresh key.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Deployed addresses (Coston2 + Base Sepolia)</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p><strong>Coston2 (chain 114) — hub.</strong></p>
+            <ul class="docs-list">
+              <li><strong>TacitVault</strong> —
+                <a href="https://coston2-explorer.flare.network/address/0x9446372Ccf68D798c2c82aa09d5C39CC9427F1Ed"
+                   target="_blank" rel="noopener noreferrer" class="mono">0x9446…F1Ed</a></li>
+              <li><strong>Venue A</strong> (8% APR, synchronous) —
+                <a href="https://coston2-explorer.flare.network/address/0xeAa13D09e5d501B108c68c2c158eA23e8f64f0e2"
+                   target="_blank" rel="noopener noreferrer" class="mono">0xeAa1…f0e2</a></li>
+              <li><strong>Venue B</strong> (15% APR, synchronous) —
+                <a href="https://coston2-explorer.flare.network/address/0x087D3C7d91af876078863b46ed835B5D0142D66a"
+                   target="_blank" rel="noopener noreferrer" class="mono">0x087D…D66a</a></li>
+              <li><strong>Firelight adapter</strong> (30% cap, delayed exit) —
+                <a href="https://coston2-explorer.flare.network/address/0x0F7fF8Db9EC2bdA72A1B4DA34e0B484AF3D1c351"
+                   target="_blank" rel="noopener noreferrer" class="mono">0x0F7f…c351</a></li>
+              <li><strong>FXRP asset</strong> (6 decimals) —
+                <a href="https://coston2-explorer.flare.network/address/0x0b6A3645c240605887a5532109323A3E12273dc7"
+                   target="_blank" rel="noopener noreferrer" class="mono">0x0b6A…3dc7</a></li>
+              <li><strong>Hub asset adapter (OFT)</strong> — <code class="mono">0xA11c…30C7</code></li>
+              <li><strong>Hub share adapter (OFT)</strong> — <code class="mono">0x82E4…0415</code></li>
+              <li><strong>Vault Composer</strong> — <code class="mono">0xEE6f…4844</code></li>
+              <li><strong>Enclave identity</strong> — <code class="mono">0x89E6…3bC5</code></li>
+            </ul>
+            <p><strong>Base Sepolia (chain 84532) — spoke.</strong></p>
+            <ul class="docs-list">
+              <li><strong>Spoke FXRP OFT</strong> —
+                <a href="https://base-sepolia.blockscout.com/address/0x07aC2E99AFeE725459BAbaD955aF17d25b28a1c3"
+                   target="_blank" rel="noopener noreferrer" class="mono">0x07aC…a1c3</a></li>
+              <li><strong>Spoke tFXRP OFT</strong> —
+                <a href="https://base-sepolia.blockscout.com/address/0x2E92272A900d6979EFaD4D63B2D59c9077718BD7"
+                   target="_blank" rel="noopener noreferrer" class="mono">0x2E92…8BD7</a></li>
+            </ul>
+            <p><strong>Guardrails as deployed:</strong> 60% cap on synchronous venues, 30% on
+              Firelight, 30% max turnover per rebalance, 300s minimum interval, ±5% FTSO band,
+              1h maximum signal age.</p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Engineering notes (things that cost real time)</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p><strong>The FDC verifier and the FDC providers are different machines.</strong>
+              <code>prepareRequest</code> returning <code>VALID</code> only proves the verifier
+              could reach a URL and run the jq filter. The ~100 data providers that actually
+              attest are different machines with different network egress. A request can be
+              <code>VALID</code>, submitted, paid for on-chain — and then <em>silently never
+              attested</em>. Coinpaprika, Coinbase, and Gemini were confirmed attesting by a
+              controlled experiment; Bitstamp, most other exchanges, and CoinGecko/Binance/Kraken
+              were not.</p>
+            <p><strong>The FDC request fee lives on a different contract than the hub.</strong>
+              <code>FdcHub.getRequestFee</code> reverts — the fee actually lives on
+              <code>FdcRequestFeeConfigurations</code>. The revert text names a method the hub
+              does not expose. Read the fee from the config contract rather than hardcoding.</p>
+            <p><strong><code>abi.encodePacked</code> pads array elements to 32 bytes.</strong>
+              Standalone value types are not padded, but arrays are. <code>uint16[]{1978, 4770}</code>
+              is 64 bytes, not 4. The Go enclave initially packed two bytes per <code>uint16</code>
+              (the intuitive reading of "packed") and produced a cryptographically valid signature
+              over the wrong bytes. On-chain it surfaced only as <code>BadSigner</code>, with both
+              sides looking correct in isolation.</p>
+            <p><strong>The FDC verifier's jq is a subset.</strong>
+              <code>floor</code>, <code>round</code>, <code>sub</code>, and <code>ltrimstr</code>
+              are all rejected. Every decimal-to-integer conversion in the signal source is done
+              with string surgery instead of arithmetic. Signed values need
+              <code>startswith("-")</code> branching, because <code>("-0"|tonumber)</code>
+              silently loses the sign.</p>
+            <p><strong>OpenZeppelin 5.x defines <code>maxWithdraw</code> in terms of
+              <code>maxRedeem</code>.</strong> Overriding both in terms of <code>super</code>
+              sends them into unbounded mutual recursion — a <code>StackOverflow</code>, not a
+              clean revert. Both now derive from a shared non-recursive helper.</p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Reading the app itself</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p><strong>Vault page.</strong> Position, deposit/withdraw, current allocation.
+              Everything you need to manage money in the vault, and nothing you need to understand
+              how it decides.</p>
+            <p><strong>Strategy page.</strong> Live guardrail values, the last attested signal
+              (with its FTSO band check), and the rebalance rhythm. Each guardrail is an
+              expandable card explaining what it is, why it exists, and its current setting.</p>
+            <p><strong>Activity page.</strong> Every <code>Deposit</code>, <code>Withdraw</code>,
+              and <code>Rebalanced</code> event the vault has emitted in the last ~200k blocks,
+              read directly from Coston2. Nothing is off-chain-indexed; every row links to the
+              explorer.</p>
+            <p><strong>Documentation page.</strong> This page.</p>
+            <p><strong>Testnet balances panel.</strong> Both tokens the selected route needs, with
+              a verdict on whether the wallet is funded. Links to the right faucet for the current
+              route. Coston2 gives 100 C2FLR + 10 FXRP per 24h.</p>
+            <p><strong>Network indicator.</strong> Shows the vault chain (Coston2) by default;
+              switches to the wallet's chain once connected. Turns pink when the wallet is on a
+              chain the app does not know about.</p>
+          </div>
+        </details>
+
+        <details class="docs-section">
+          <summary><span class="docs-h">Testnet disclaimer</span><span class="chev" aria-hidden="true"></span></summary>
+          <div class="docs-body">
+            <p>
+              This is a testnet deployment on <strong>Flare Coston2</strong> and <strong>Base
+              Sepolia</strong>. Assets carry no monetary value.
+            </p>
+            <p>
+              Coston2 does not host the live FXRP money markets (Kinetic, SparkDEX, Enosys), so
+              two of the three venues are testnet stand-ins that pay a modest realised rate; the
+              third uses the generic ERC-4626 adapter to reach a real third-party vault
+              (<strong>Firelight stXRP</strong>, ~100k FXRP TVL on Coston2). The adapter's
+              behaviour is production-shaped: it flags Firelight as <em>delayed exit</em>, holds
+              back its assets from redemption quotes, and reverts if shares leave without assets
+              arriving.
+            </p>
+            <p>
+              Hardware attestation of the enclave is <strong>simulated</strong> on Coston2 — the
+              testnet has no Confidential Space hardware to attest against. Production attestation
+              rejects simulated quotes by design. The five on-chain guardrails do not depend on
+              hardware attestation; turning it on would upgrade the system from <em>bounded</em>
+              to <em>bounded and attested</em>, not close a hole. Deployment is a config change
+              (<code>MODE=0</code> on a Confidential Space VM plus an allowlisted image hash),
+              not a redesign.
+            </p>
+            <p>
+              The vault is small — ~2 FXRP, limited by the testnet faucet. The mechanism is what
+              is being demonstrated, not the size of the position.
+            </p>
+          </div>
+        </details>
+
+      </div>
+
+      <div class="docs-links">
+        <a href="https://github.com/drained69/Tacit#readme" target="_blank"
+           rel="noopener noreferrer">README <span class="ext" aria-hidden="true">↗</span></a>
+        <a href="https://github.com/drained69/Tacit/tree/main/src" target="_blank"
+           rel="noopener noreferrer">Solidity source <span class="ext" aria-hidden="true">↗</span></a>
+        <a href="https://github.com/drained69/Tacit/tree/main/tee" target="_blank"
+           rel="noopener noreferrer">Enclave (Go) <span class="ext" aria-hidden="true">↗</span></a>
+        <a href="https://github.com/drained69/Tacit/tree/main/test" target="_blank"
+           rel="noopener noreferrer">Tests <span class="ext" aria-hidden="true">↗</span></a>
+        <a href="https://github.com/drained69/Tacit/tree/main/script/ovault" target="_blank"
+           rel="noopener noreferrer">OVault scripts <span class="ext" aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </section>
+
 </main>
 
 <!-- The version query is not decoration. ES modules are cached per-origin and survive tab
      closes, so after a redeploy the page keeps running the previous bundle and reads the previous
      `deployments.json` with it — presenting a dead vault as an empty one, which looks like a
      product bug rather than a stale cache. Bump this whenever ui/ changes. -->
-<script type="module" src="app.js?v=10"></script>
+<script type="module" src="app.js?v=23"></script>
 </body>
 </html>
