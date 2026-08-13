@@ -519,6 +519,37 @@ async function connect() {
   }
 }
 
+/// Local disconnect. Injected wallets expose no reliable programmatic sign-out — the page can only
+/// forget the connection on its side and, where the wallet supports it, revoke the account
+/// permission so the next Connect re-prompts instead of silently re-attaching (the init-time
+/// `eth_accounts` reconnect would otherwise bring the address straight back on reload).
+async function disconnect() {
+  try {
+    await window.ethereum?.request?.({
+      method: "wallet_revokePermissions",
+      params: [{ eth_accounts: {} }],
+    });
+  } catch { /* wallet doesn't support revoke — the local reset below still disconnects the page */ }
+
+  provider = signer = account = undefined;
+  vaultWrite = assetWrite = spokeAssetWrite = null;
+
+  $("connect").textContent = "Connect wallet";
+  $("network-pill").textContent = "not connected";
+  $("network-pill").className = "pill pill-muted";
+  $("copy-address").disabled = true;
+
+  // Drop back to the read-only view the page loads with before any wallet is attached.
+  await refresh();
+  setStatus("Wallet disconnected.");
+}
+
+/// The one button toggles: it shows the address once connected, so a click there means "disconnect".
+function toggleConnection() {
+  if (account) return disconnect();
+  return connect();
+}
+
 /// Returns true once read contracts are live. Fails loudly and specifically if they are not.
 async function wire() {
   if (!VAULT_ADDRESS) return false;
@@ -1333,7 +1364,7 @@ async function pollAutopilot() {
 // ── boot ────────────────────────────────────────────────────
 
 async function boot() {
-  $("connect").addEventListener("click", connect);
+  $("connect").addEventListener("click", toggleConnection);
   $("deposit").addEventListener("click", deposit);
   $("withdraw").addEventListener("click", withdraw);
   $("request-rebalance").addEventListener("click", requestRebalance);
