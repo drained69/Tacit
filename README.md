@@ -776,8 +776,3 @@ folklore.
 
 
 
-
-
-SIMULATED_TEE=true && go run .
-
-
